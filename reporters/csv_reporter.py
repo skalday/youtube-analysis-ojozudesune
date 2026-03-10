@@ -1,5 +1,5 @@
 """
-CSVReporter — 匯出原始資料 CSV（UTF-8-sig，Excel 相容）。
+CSVReporter — Export raw data as CSV (UTF-8-sig, Excel compatible).
 """
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ class CSVReporter:
                 })
 
         self.store.save_csv(str(path), records)
-        print(f"  [csv] 已寫入 {path}（{len(records)} 筆留言）")
+        print(f"  [csv] written {path} ({len(records)} comments)")
         return path
 
     # ------------------------------------------------------------------
@@ -94,11 +94,11 @@ class CSVReporter:
                     "video_url": url,
                     "language": "",
                     "is_generated": "",
-                    "full_text": "（無逐字稿）",
+                    "full_text": "(no transcript)",
                 })
 
         self.store.save_csv(str(path), records)
-        print(f"  [csv] 已寫入 {path}（{len(records)} 支影片）")
+        print(f"  [csv] written {path} ({len(records)} videos)")
         return path
 
     # ------------------------------------------------------------------
@@ -114,7 +114,7 @@ class CSVReporter:
         path = out_dir / "locations_database.csv"
         records = location_agg.get("all_locations", [])
         self.store.save_csv(str(path), records)
-        print(f"  [csv] 已寫入 {path}（{len(records)} 筆地點）")
+        print(f"  [csv] written {path} ({len(records)} locations)")
         return path
 
     def write_food(
@@ -126,7 +126,7 @@ class CSVReporter:
         path = out_dir / "food_database.csv"
         records = location_agg.get("all_food", [])
         self.store.save_csv(str(path), records)
-        print(f"  [csv] 已寫入 {path}（{len(records)} 筆食物）")
+        print(f"  [csv] written {path} ({len(records)} food items)")
         return path
 
     def write_equipment(
@@ -138,7 +138,7 @@ class CSVReporter:
         path = out_dir / "equipment_database.csv"
         records = location_agg.get("all_equipment", [])
         self.store.save_csv(str(path), records)
-        print(f"  [csv] 已寫入 {path}（{len(records)} 筆設備）")
+        print(f"  [csv] written {path} ({len(records)} equipment items)")
         return path
 
     # ------------------------------------------------------------------
@@ -170,7 +170,7 @@ class CSVReporter:
             })
 
         self.store.save_csv(str(path), records)
-        print(f"  [csv] 已寫入 {path}（{len(records)} 個知識點）")
+        print(f"  [csv] written {path} ({len(records)} knowledge items)")
         return path
 
     # ------------------------------------------------------------------

@@ -2,20 +2,20 @@ from datetime import datetime, timezone
 
 from analyzers.claude_client import ClaudeClient
 
-SYSTEM_PROMPT = """你是一位專業的資料萃取員，負責從日文 YouTube 高爾夫影片逐字稿中精確抽取地點、食物和設備資訊。
-輸出必須是合法的 JSON 格式，不要加入任何說明文字。
-若某集沒有相關資訊，對應陣列請回傳空陣列 []。"""
+SYSTEM_PROMPT = """You are a professional data extractor responsible for accurately extracting location, food, and equipment information from Japanese YouTube golf video transcripts.
+Output must be valid JSON with no extra text.
+If an episode has no relevant information, return empty arrays [] for the corresponding fields."""
 
-EXTRACTION_PROMPT_TEMPLATE = """以下是 YouTube 影片的逐字稿：
+EXTRACTION_PROMPT_TEMPLATE = """Below is the transcript of a YouTube video:
 
-影片標題：{title}
-影片連結：https://youtu.be/{video_id}
-發布日期：{published_at}
+Video title: {title}
+Video URL: https://youtu.be/{video_id}
+Published date: {published_at}
 
-逐字稿內容：
+Transcript:
 {transcript_text}
 
-請從以上逐字稿中萃取以下資訊，輸出 JSON：
+Extract the following information from the transcript and output JSON:
 
 {{
   "video_id": "{video_id}",
@@ -24,27 +24,27 @@ EXTRACTION_PROMPT_TEMPLATE = """以下是 YouTube 影片的逐字稿：
   "published_at": "{published_at}",
   "locations": [
     {{
-      "name": "地點名稱（原文）",
-      "name_zh": "地點名稱（繁體中文翻譯，若已是中文則相同）",
-      "city": "所在縣市或都道府縣",
-      "type": "類型（golf_course / driving_range / restaurant / hotel / other）",
-      "context": "逐字稿中提到此地點的原文節錄（1-2句）"
+      "name": "Location name (original text)",
+      "name_zh": "Location name (English translation, or same if already English)",
+      "city": "City or prefecture",
+      "type": "Type (golf_course / driving_range / restaurant / hotel / other)",
+      "context": "Original transcript excerpt mentioning this location (1-2 sentences)"
     }}
   ],
   "food": [
     {{
-      "name": "食物或飲料名稱（原文）",
-      "name_zh": "繁體中文名稱",
-      "location": "在哪裡吃到的（例：クラブハウス、コース内、未提及）",
-      "context": "逐字稿原文節錄"
+      "name": "Food or drink name (original text)",
+      "name_zh": "English name",
+      "location": "Where it was consumed (e.g. clubhouse, on course, not mentioned)",
+      "context": "Original transcript excerpt"
     }}
   ],
   "equipment": [
     {{
-      "type": "設備類型（driver / iron / wedge / putter / ball / bag / shoes / apparel / other）",
-      "brand": "品牌名稱",
-      "model": "型號（若有提及）",
-      "context": "逐字稿原文節錄"
+      "type": "Equipment type (driver / iron / wedge / putter / ball / bag / shoes / apparel / other)",
+      "brand": "Brand name",
+      "model": "Model name (if mentioned)",
+      "context": "Original transcript excerpt"
     }}
   ]
 }}"""
@@ -130,7 +130,7 @@ class LocationExtractor:
         skip = skip_existing or set()
         results = []
 
-        for video in tqdm(videos, desc="萃取地點/食物/設備", unit="支"):
+        for video in tqdm(videos, desc="Extracting locations/food/equipment", unit="vid"):
             video_id = video["video_id"]
             if video_id in skip:
                 continue

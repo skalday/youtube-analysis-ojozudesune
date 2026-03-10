@@ -1,5 +1,5 @@
 """
-MarkdownReporter — 產生人類可讀的 Markdown 分析報告。
+MarkdownReporter — Generate human-readable Markdown analysis reports.
 """
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ from pathlib import Path
 
 def _bullet_list(items: list) -> str:
     if not items:
-        return "_（無資料）_\n"
+        return "_(no data)_\n"
     return "\n".join(f"- {item}" for item in items) + "\n"
 
 
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-    print(f"  [markdown] 已寫入 {path}")
+    print(f"  [markdown] written {path}")
 
 
 class MarkdownReporter:
@@ -41,53 +41,53 @@ class MarkdownReporter:
         neu = sentiment.get("neutral", 0)
         neg = sentiment.get("negative", 0)
         sentiment_bar = (
-            f"正面 {pos:.0%} ／ 中性 {neu:.0%} ／ 負面 {neg:.0%}"
+            f"Positive {pos:.0%} / Neutral {neu:.0%} / Negative {neg:.0%}"
         )
 
         lines = [
-            f"# TA 輪廓分析報告 — {channel_title}",
+            f"# Audience Profile Report — {channel_title}",
             "",
-            f"> 分析日期：{audience.get('analysis_date', 'N/A')}　｜　"
-            f"分析影片數：{audience.get('video_count', 0)}　｜　"
-            f"分析留言數：{audience.get('comment_count', 0)}",
+            f"> Analysis date: {audience.get('analysis_date', 'N/A')}  |  "
+            f"Videos analysed: {audience.get('video_count', 0)}  |  "
+            f"Comments analysed: {audience.get('comment_count', 0)}",
             "",
             "---",
             "",
-            "## 人口特徵",
+            "## Demographics",
             "",
-            f"- **推估年齡層**：{demo.get('age_range', 'N/A')}",
-            f"- **職業類型**：{', '.join(demo.get('occupation_types', [])) or 'N/A'}",
-            f"- **地區推斷**：{', '.join(demo.get('location_hints', [])) or 'N/A'}",
+            f"- **Estimated age range**: {demo.get('age_range', 'N/A')}",
+            f"- **Occupation types**: {', '.join(demo.get('occupation_types', [])) or 'N/A'}",
+            f"- **Location hints**: {', '.join(demo.get('location_hints', [])) or 'N/A'}",
             "",
-            "## 興趣與關注點",
+            "## Interests & Topics",
             "",
             _bullet_list(audience.get("interests", [])),
-            "## 痛點與需求",
+            "## Pain Points & Needs",
             "",
             _bullet_list(audience.get("pain_points", [])),
-            "## 語言習慣",
+            "## Language Patterns",
             "",
-            f"- **敬語程度**：{lang.get('formality', 'N/A')}",
-            f"- **常用詞彙**：{', '.join(lang.get('frequent_terms', [])) or 'N/A'}",
-            f"- **常用表情符號**：{' '.join(lang.get('common_emojis', [])) or 'N/A'}",
+            f"- **Formality**: {lang.get('formality', 'N/A')}",
+            f"- **Frequent terms**: {', '.join(lang.get('frequent_terms', [])) or 'N/A'}",
+            f"- **Common emojis**: {' '.join(lang.get('common_emojis', [])) or 'N/A'}",
             "",
-            "## 互動觸發點",
+            "## Engagement Triggers",
             "",
             _bullet_list(audience.get("engagement_triggers", [])),
-            "## 情感傾向分布",
+            "## Sentiment Breakdown",
             "",
             sentiment_bar,
             "",
-            "## 關鍵洞察",
+            "## Key Insights",
             "",
             _bullet_list(audience.get("key_insights", [])),
-            "## 建議內容方向",
+            "## Recommended Content Directions",
             "",
             _bullet_list(audience.get("recommended_content_directions", [])),
         ]
 
         if audience.get("error"):
-            lines.insert(4, f"\n> **⚠️ 警告**：{audience['error']}\n")
+            lines.insert(4, f"\n> **Warning**: {audience['error']}\n")
 
         _write(path, "\n".join(lines))
         return path
@@ -108,7 +108,7 @@ class MarkdownReporter:
         # Core content themes table
         themes = brand.get("content_themes", [])
         if themes and isinstance(themes[0], dict):
-            theme_rows = ["| 主題 | 說明 | 出現頻率 |", "|------|------|---------|"]
+            theme_rows = ["| Theme | Description | Frequency |", "|-------|-------------|-----------|"]
             for t in themes:
                 theme_rows.append(
                     f"| {t.get('theme','')} | {t.get('description','')} | {t.get('frequency','')} |"
@@ -118,40 +118,40 @@ class MarkdownReporter:
             themes_block = _bullet_list([str(t) for t in themes])
 
         lines = [
-            f"# 品牌定位分析報告 — {channel_title}",
+            f"# Brand Positioning Report — {channel_title}",
             "",
-            f"> 分析日期：{brand.get('analysis_date', 'N/A')}　｜　"
-            f"分析影片數：{brand.get('video_count', 0)}",
+            f"> Analysis date: {brand.get('analysis_date', 'N/A')}  |  "
+            f"Videos analysed: {brand.get('video_count', 0)}",
             "",
             "---",
             "",
-            "## 核心內容主題",
+            "## Core Content Themes",
             "",
             themes_block,
-            "## 溝通風格與語調",
+            "## Communication Style & Tone",
             "",
-            f"**語調**：{brand.get('tone_of_voice', 'N/A')}",
+            f"**Tone**: {brand.get('tone_of_voice', 'N/A')}",
             "",
-            f"**風格**：{brand.get('communication_style', 'N/A')}",
+            f"**Style**: {brand.get('communication_style', 'N/A')}",
             "",
-            "## 價值主張",
+            "## Value Propositions",
             "",
             _bullet_list(brand.get("value_propositions", [])),
-            "## 差異化定位",
+            "## Unique Differentiators",
             "",
             _bullet_list(brand.get("unique_differentiators", [])),
-            "## 品牌個性",
+            "## Brand Personality",
             "",
-            ", ".join(brand.get("brand_personality", [])) or "_（無資料）_",
+            ", ".join(brand.get("brand_personality", [])) or "_(no data)_",
             "",
-            "## 核心訊息",
+            "## Core Message",
             "",
-            brand.get("target_message", "_（無資料）_"),
+            brand.get("target_message", "_(no data)_"),
             "",
-            "## 內容缺口",
+            "## Content Gaps",
             "",
             _bullet_list(brand.get("content_gaps", [])),
-            "## 關鍵洞察",
+            "## Key Insights",
             "",
             _bullet_list(brand.get("key_insights", [])),
         ]
@@ -161,7 +161,7 @@ class MarkdownReporter:
                 "",
                 "---",
                 "",
-                "## 原始分析文字（備用）",
+                "## Raw Analysis (fallback)",
                 "",
                 "```",
                 brand["raw_analysis"],
@@ -190,11 +190,11 @@ class MarkdownReporter:
         extraction_date = knowledge_agg.get("extraction_date", "N/A")
 
         lines = [
-            f"# 高爾夫知識索引 — {channel_title}",
+            f"# Golf Knowledge Index — {channel_title}",
             "",
-            f"> 提取日期：{extraction_date[:10]}　｜　"
-            f"處理影片數：{stats.get('videos_processed', 0)}　｜　"
-            f"知識點總數：{stats.get('total_knowledge_items', 0)}",
+            f"> Extracted: {extraction_date[:10]}  |  "
+            f"Videos processed: {stats.get('videos_processed', 0)}  |  "
+            f"Total knowledge items: {stats.get('total_knowledge_items', 0)}",
             "",
             "---",
             "",
@@ -203,7 +203,7 @@ class MarkdownReporter:
         # Learning path
         if index_summary.get("learning_path_suggestion"):
             lines += [
-                "## 學習路徑建議",
+                "## Suggested Learning Path",
                 "",
                 index_summary["learning_path_suggestion"],
                 "",
@@ -213,7 +213,7 @@ class MarkdownReporter:
         top_topics = index_summary.get("top_topics", [])
         if top_topics:
             lines += [
-                "## 重點主題",
+                "## Top Topics",
                 "",
                 _bullet_list(top_topics),
             ]
@@ -222,9 +222,9 @@ class MarkdownReporter:
 
         # Category order
         category_order = [
-            "揮桿技術", "球場策略", "練習方法",
-            "心理技巧", "球桿選擇", "球場介紹",
-            "規則禮儀", "其他",
+            "swing_technique", "course_strategy", "practice_method",
+            "mental", "club_selection", "course_intro",
+            "rules_etiquette", "other",
         ]
         # Add any extra categories not in predefined order
         for cat in by_category:
@@ -237,14 +237,14 @@ class MarkdownReporter:
                 continue
 
             lines += [
-                f"## {cat}（{len(items)} 個知識點）",
+                f"## {cat} ({len(items)} items)",
                 "",
-                "| 主題 | 摘要 | 難易度 | 影片來源 |",
-                "|------|------|--------|---------|",
+                "| Topic | Summary | Difficulty | Source |",
+                "|-------|---------|------------|--------|",
             ]
 
             for item in items:
-                topic = item.get("topic_zh", item.get("topic", ""))
+                topic = item.get("topic_en", item.get("topic", ""))
                 summary = item.get("summary", "")
                 # Truncate long summaries in table
                 if len(summary) > 60:
@@ -255,8 +255,8 @@ class MarkdownReporter:
                 source = f"[{video_title[:20]}]({video_url})" if video_url else video_title[:20]
 
                 # Escape pipes in table cells
-                topic = topic.replace("|", "｜")
-                summary = summary.replace("|", "｜")
+                topic = topic.replace("|", "&#124;")
+                summary = summary.replace("|", "&#124;")
 
                 lines.append(f"| {topic} | {summary} | {difficulty} | {source} |")
 

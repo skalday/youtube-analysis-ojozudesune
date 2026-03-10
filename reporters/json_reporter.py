@@ -1,5 +1,5 @@
 """
-JSONReporter — 產生 summary.json 整合報告（含累加歷史快照）。
+JSONReporter — Generate summary.json with all analysis results (with cumulative history snapshots).
 """
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ class JSONReporter:
         }
 
         self.store.save_json(str(path), summary)
-        print(f"  [json] 已寫入 {path}")
+        print(f"  [json] written {path}")
         return path
 
 

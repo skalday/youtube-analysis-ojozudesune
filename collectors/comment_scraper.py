@@ -75,7 +75,7 @@ class CommentScraper:
         skip = skip_existing_ids or set()
         to_fetch = [vid for vid in video_ids if vid not in skip]
 
-        for video_id in tqdm(to_fetch, desc="抓取留言", unit="支"):
+        for video_id in tqdm(to_fetch, desc="Fetching comments", unit="vid"):
             results[video_id] = self.fetch_comments(video_id)
 
         return results

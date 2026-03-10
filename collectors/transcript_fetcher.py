@@ -90,7 +90,7 @@ class TranscriptFetcher:
 
         to_fetch = [vid for vid in video_ids if vid not in skip]
 
-        for video_id in tqdm(to_fetch, desc="抓取逐字稿", unit="支"):
+        for video_id in tqdm(to_fetch, desc="Fetching transcripts", unit="vid"):
             results[video_id] = self.fetch(video_id)
 
         return results

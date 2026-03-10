@@ -2,37 +2,37 @@ from datetime import datetime, timezone
 
 from analyzers.claude_client import ClaudeClient
 
-SYSTEM_PROMPT = """你是一位專業的觀眾受眾（TA）分析師，擅長從 YouTube 留言中洞察受眾輪廓。
-請根據提供的留言資料進行深度分析，所有輸出請使用繁體中文。
-輸出必須是合法的 JSON 格式，不要加入任何說明文字或 markdown 以外的內容。"""
+SYSTEM_PROMPT = """You are a professional audience (TA) analyst specialising in deriving audience profiles from YouTube comments.
+Analyse the provided comment data in depth. Output in English.
+Output must be valid JSON with no extra text or markdown outside the JSON."""
 
-ANALYSIS_PROMPT_TEMPLATE = """以下是 YouTube 頻道「{channel_title}」的 {video_count} 支影片的留言資料（共 {comment_count} 則，已依按讚數排序）：
+ANALYSIS_PROMPT_TEMPLATE = """Below are comments from {video_count} videos on the YouTube channel "{channel_title}" (total {comment_count} comments, sorted by like count descending):
 
 {comments_text}
 
-請分析這些留言，輸出以下 JSON 結構（請用繁體中文填寫所有文字欄位）：
+Analyse these comments and output the following JSON structure:
 
 {{
   "demographics": {{
-    "age_range": "推測的主要年齡層（例：25-40歲）",
-    "occupation_types": ["推測的職業類型列表"],
-    "location_hints": ["從用語或話題推斷的地區線索"]
+    "age_range": "Estimated primary age range (e.g. 25-40)",
+    "occupation_types": ["List of inferred occupation types"],
+    "location_hints": ["Location clues inferred from language or topics"]
   }},
-  "interests": ["觀眾最關心的話題或興趣，列出5-10項"],
-  "pain_points": ["觀眾的困擾、問題或期待，列出5-10項"],
+  "interests": ["Topics or interests viewers care about most, 5-10 items"],
+  "pain_points": ["Viewer frustrations, problems, or expectations, 5-10 items"],
   "language_patterns": {{
-    "formality": "敬語程度描述（例：常用です・ます體，偶爾使用口語）",
-    "common_emojis": ["常見表情符號列表"],
-    "frequent_terms": ["頻繁出現的特定詞彙或表達方式"]
+    "formality": "Description of formality level",
+    "common_emojis": ["List of frequently used emojis"],
+    "frequent_terms": ["Frequently appearing specific words or expressions"]
   }},
-  "engagement_triggers": ["哪類內容或話題引發最多留言或高讚，列出3-5項"],
+  "engagement_triggers": ["Content types or topics that generate the most comments or likes, 3-5 items"],
   "sentiment_breakdown": {{
-    "positive": 正面留言比例（0.0-1.0的浮點數）,
-    "neutral": 中性留言比例,
-    "negative": 負面留言比例
+    "positive": positive comment ratio (float 0.0-1.0),
+    "neutral": neutral comment ratio,
+    "negative": negative comment ratio
   }},
-  "key_insights": ["3-5條最重要的受眾洞察"],
-  "recommended_content_directions": ["根據受眾分析，建議的內容方向，3-5條"]
+  "key_insights": ["3-5 most important audience insights"],
+  "recommended_content_directions": ["Recommended content directions based on audience analysis, 3-5 items"]
 }}"""
 
 
@@ -61,8 +61,8 @@ def _format_comments(all_comments: dict, videos: list, max_total: int = 3000) ->
     lines = []
     for item in flat:
         likes = item["like_count"]
-        like_str = f"[👍{likes}] " if likes > 0 else ""
-        lines.append(f"《{item['video_title']}》{like_str}{item['text']}")
+        like_str = f"[likes:{likes}] " if likes > 0 else ""
+        lines.append(f"[{item['video_title']}] {like_str}{item['text']}")
 
     videos_with_comments = sum(1 for v in all_comments.values() if v)
     return "\n".join(lines), len(flat), videos_with_comments
@@ -90,7 +90,7 @@ class AudienceAnalyzer:
             return {"error": "No comments available for analysis"}
 
         prompt = ANALYSIS_PROMPT_TEMPLATE.format(
-            channel_title=channel_title or "（未知頻道）",
+            channel_title=channel_title or "(unknown channel)",
             video_count=video_count,
             comment_count=total_count,
             comments_text=comments_text,

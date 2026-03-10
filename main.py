@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 YouTube Channel Analysis Tool
-用法：python main.py --channel @ChannelHandle --max-videos 20
+Usage: python main.py --channel @ChannelHandle --max-videos 20
 """
 from __future__ import annotations
 
@@ -12,72 +12,184 @@ from pathlib import Path
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="分析 YouTube 頻道的 TA 輪廓和個人品牌定位",
+        description="Analyse a YouTube channel's audience profile and brand positioning",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-範例：
+Examples:
   python main.py --channel @SomeGolfChannel --max-videos 30
   python main.py --channel UCxxxxxxxxxx --max-videos 50 --force-refresh
-  python main.py --channel @SomeChannel --skip-comments   # 只分析品牌定位
+  python main.py --channel @SomeChannel --skip-comments   # brand analysis only
         """,
     )
 
     parser.add_argument(
         "--channel",
         required=True,
-        help="YouTube 頻道 @handle 或 Channel ID",
+        help="YouTube channel @handle or Channel ID",
     )
     parser.add_argument(
         "--max-videos",
         type=int,
         default=20,
         metavar="N",
-        help="最多分析幾支影片（預設 20）",
+        help="Maximum number of videos to analyse (default: 20)",
     )
     parser.add_argument(
         "--max-comments",
         type=int,
         default=100,
         metavar="N",
-        help="每支影片最多抓幾則留言（預設 100）",
+        help="Maximum comments to fetch per video (default: 100)",
     )
     parser.add_argument(
         "--force-refresh",
         action="store_true",
-        help="忽略快取，重新抓取所有資料",
+        help="Ignore cache and re-fetch all data",
     )
     parser.add_argument(
         "--skip-transcripts",
         action="store_true",
-        help="跳過逐字稿抓取及相關分析（品牌定位、地點萃取、知識索引）",
+        help="Skip transcript fetching and related analyses (brand, location, knowledge)",
     )
     parser.add_argument(
         "--skip-comments",
         action="store_true",
-        help="跳過留言抓取及 TA 分析",
+        help="Skip comment fetching and audience analysis",
     )
     parser.add_argument(
         "--skip-extraction",
         action="store_true",
-        help="跳過 location/knowledge 結構化萃取（僅執行 audience/brand 分析）",
+        help="Skip location/knowledge structured extraction (run audience/brand only)",
     )
     parser.add_argument(
         "--refresh-comments",
         action="store_true",
-        help="重新抓取已快取影片的留言（更新熱門留言排序）",
+        help="Re-fetch comments for cached videos (updates top-comment ranking)",
     )
     parser.add_argument(
         "--output-dir",
         default="./reports",
         metavar="DIR",
-        help="報告輸出根目錄（預設 ./reports）",
+        help="Report output root directory (default: ./reports)",
+    )
+    parser.add_argument(
+        "--data-only",
+        action="store_true",
+        help="Fetch data only (transcripts + comments), skip Claude analysis, and print token/cost estimate",
     )
 
     return parser.parse_args()
 
 
+def _estimate_cost(
+    videos: list,
+    transcripts: dict,
+    all_comments: dict,
+) -> None:
+    """Print data summary and Claude API cost estimates without calling any API."""
+
+    CHARS_PER_TOKEN = 1.5  # Conservative for Japanese/Chinese CJK content
+
+    # Pricing: (input $/MTok, output $/MTok)
+    PRICING = {
+        "Haiku 4.5 (cheapest)": (0.80,  4.00),
+        "Sonnet 4.6 (default)": (3.00, 15.00),
+    }
+
+    # ── Data stats ──────────────────────────────────────────────────────────
+    transcript_chars: dict[str, int] = {
+        vid: len(t["full_text"])
+        for vid, t in transcripts.items()
+        if t and t.get("full_text")
+    }
+    total_transcript_chars = sum(transcript_chars.values())
+    videos_with_transcripts = len(transcript_chars)
+
+    total_comments = sum(len(c) for c in all_comments.values())
+    comment_chars = sum(
+        sum(len(c.get("text", "")) + len(c.get("video_id", "")) + 20 for c in comments)
+        for comments in all_comments.values()
+    )
+
+    print(f"\n{'='*62}")
+    print("Data Summary")
+    print(f"{'='*62}")
+    print(f"  Videos fetched        : {len(videos):>6}")
+    print(f"  With transcripts      : {videos_with_transcripts:>6}")
+    print(f"  Transcript chars      : {total_transcript_chars:>10,}")
+    print(f"  Total comments        : {total_comments:>10,}")
+    print(f"  Comment chars         : {comment_chars:>10,}")
+
+    # ── Per-analysis token estimates ────────────────────────────────────────
+    # 1. Audience analysis (1 call, comments capped at 3000 by _format_comments)
+    comment_chars_capped = min(comment_chars, 3000 * 150)
+    aud_in  = int(comment_chars_capped / CHARS_PER_TOKEN) + 500
+    aud_out = 1_000
+    aud_calls = 1
+    aud_skip  = not bool(all_comments)
+
+    # 2. Brand analysis (transcripts capped at 80,000 chars, chunked at 60,000)
+    brand_chars   = min(total_transcript_chars, 80_000)
+    brand_chunks  = max(1, -(-brand_chars // 60_000))  # ceiling div
+    brand_in  = int(brand_chars / CHARS_PER_TOKEN) + 500 * brand_chunks
+    brand_out = 2_000 * brand_chunks
+    if brand_chunks > 1:  # extra synthesis call
+        brand_in  += int(brand_chunks * 2_000 / CHARS_PER_TOKEN) + 300
+        brand_out += 2_000
+    brand_calls = brand_chunks + (1 if brand_chunks > 1 else 0)
+    brand_skip  = not bool(transcripts)
+
+    # 3. Location extraction (1 call per video, transcript capped at 25,000 chars)
+    loc_in  = sum(int(min(c, 25_000) / CHARS_PER_TOKEN) + 400 for c in transcript_chars.values())
+    loc_out = 500 * videos_with_transcripts
+    loc_calls = videos_with_transcripts
+    loc_skip  = not bool(transcripts)
+
+    # 4. Knowledge extraction (1 call per video + 1 synthesis)
+    know_in  = loc_in + int(min(videos_with_transcripts * 10, 200) * 80 / CHARS_PER_TOKEN) + 400
+    know_out = 800 * videos_with_transcripts + 500
+    know_calls = videos_with_transcripts + 1
+    know_skip  = not bool(transcripts)
+
+    analysis_rows = [
+        ("Audience analysis",         aud_calls,   aud_in,   aud_out,   aud_skip),
+        ("Brand analysis",            brand_calls, brand_in, brand_out, brand_skip),
+        ("Location/food/equipment",   loc_calls,   loc_in,   loc_out,   loc_skip),
+        ("Golf knowledge index",      know_calls,  know_in,  know_out,  know_skip),
+    ]
+
+    print(f"\n{'='*62}")
+    print("Claude API Token Estimate (full run)")
+    print(f"{'='*62}")
+    hdr = f"  {'Analysis':<26} {'Calls':>6}  {'Input tok':>12}  {'Output tok':>12}"
+    print(hdr)
+    print(f"  {'-'*26} {'-'*6}  {'-'*12}  {'-'*12}")
+
+    grand_in = grand_out = 0
+    for name, calls_n, in_tok, out_tok, skip in analysis_rows:
+        if skip:
+            print(f"  {name:<26}  (no data, skipped)")
+        else:
+            print(f"  {name:<26} {calls_n:>6,}  {in_tok:>12,}  {out_tok:>12,}")
+            grand_in  += in_tok
+            grand_out += out_tok
+
+    print(f"  {'Total':<26} {'':>6}  {grand_in:>12,}  {grand_out:>12,}")
+
+    print(f"\n{'='*62}")
+    print("Estimated Cost (USD)")
+    print(f"{'='*62}")
+    for label, (p_in, p_out) in PRICING.items():
+        cost_usd = (grand_in * p_in + grand_out * p_out) / 1_000_000
+        print(f"  {label:<28}  ${cost_usd:.4f}")
+
+    print(f"\n  * Token estimate: {CHARS_PER_TOKEN} chars per token (CJK content)")
+    print(f"  * Actual cost depends on Anthropic pricing at time of run")
+    print(f"{'='*62}\n")
+
+
 def _warn(msg: str) -> None:
-    print(f"\n⚠️  {msg}", file=sys.stderr)
+    print(f"\n[WARNING] {msg}", file=sys.stderr)
 
 
 def _step(n: int, total: int, msg: str) -> None:
@@ -101,8 +213,8 @@ def main() -> None:
         missing.append("ANTHROPIC_API_KEY")
     if missing:
         print(
-            f"❌ 缺少必要的環境變數：{', '.join(missing)}\n"
-            "   請複製 .env.example → .env 並填入 API keys。",
+            f"Missing required environment variables: {', '.join(missing)}\n"
+            "Copy .env.example to .env and fill in your API keys.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -152,12 +264,12 @@ def main() -> None:
     # ------------------------------------------------------------------ #
     # Step 1 — Resolve channel                                             #
     # ------------------------------------------------------------------ #
-    _step(1, TOTAL_STEPS, f"解析頻道：{args.channel}")
+    _step(1, TOTAL_STEPS, f"Resolving channel: {args.channel}")
     try:
         channel_id, channel_title = yt.get_channel_id_by_handle(args.channel)
-        print(f"   → {channel_title} ({channel_id})")
+        print(f"   -> {channel_title} ({channel_id})")
     except Exception as exc:
-        print(f"❌ 無法解析頻道：{exc}", file=sys.stderr)
+        print(f"Failed to resolve channel: {exc}", file=sys.stderr)
         sys.exit(1)
 
     out_dir = Path(args.output_dir) / channel_id
@@ -166,32 +278,32 @@ def main() -> None:
     # ------------------------------------------------------------------ #
     # Step 2 — Fetch video list & detect new videos                        #
     # ------------------------------------------------------------------ #
-    _step(2, TOTAL_STEPS, "取影片列表，對比快取找出新影片…")
+    _step(2, TOTAL_STEPS, "Fetching video list, comparing against cache...")
     try:
         videos = yt.list_channel_videos(
             channel_id=channel_id,
             max_results=args.max_videos,
         )
-        print(f"   → 取得 {len(videos)} 支影片")
+        print(f"   -> {len(videos)} videos fetched")
     except Exception as exc:
-        print(f"❌ 取影片列表失敗：{exc}", file=sys.stderr)
+        print(f"Failed to fetch video list: {exc}", file=sys.stderr)
         sys.exit(1)
 
     all_video_ids = [v["video_id"] for v in videos]
 
     if args.force_refresh:
         new_video_ids = all_video_ids
-        print("   → --force-refresh：全部重新抓取")
+        print("   -> --force-refresh: re-fetching all videos")
     else:
         new_video_ids = cache.get_new_video_ids(channel_id, all_video_ids)
-        print(f"   → 新影片：{len(new_video_ids)} 支 ／ 快取：{len(all_video_ids) - len(new_video_ids)} 支")
+        print(f"   -> New: {len(new_video_ids)} / Cached: {len(all_video_ids) - len(new_video_ids)}")
 
     # ------------------------------------------------------------------ #
     # Step 3 — Transcripts                                                 #
     # ------------------------------------------------------------------ #
     transcripts: dict = {}
     if not args.skip_transcripts:
-        _step(3, TOTAL_STEPS, "抓取逐字稿（僅新影片）…")
+        _step(3, TOTAL_STEPS, "Fetching transcripts (new videos only)...")
         try:
             transcripts = transcript_fetcher.fetch_batch(
                 video_ids=all_video_ids,
@@ -200,23 +312,23 @@ def main() -> None:
                 force=args.force_refresh,
             )
             fetched = sum(1 for t in transcripts.values() if t)
-            print(f"   → 成功取得逐字稿：{fetched} / {len(all_video_ids)} 支")
+            print(f"   -> Transcripts fetched: {fetched} / {len(all_video_ids)}")
 
             # Mark videos that have transcripts
             transcript_set = {vid for vid, t in transcripts.items() if t}
             for v in videos:
                 v["has_transcript"] = v["video_id"] in transcript_set
         except Exception as exc:
-            _warn(f"逐字稿抓取失敗，跳過：{exc}")
+            _warn(f"Transcript fetch failed, skipping: {exc}")
     else:
-        _step(3, TOTAL_STEPS, "跳過逐字稿（--skip-transcripts）")
+        _step(3, TOTAL_STEPS, "Skipping transcripts (--skip-transcripts)")
 
     # ------------------------------------------------------------------ #
     # Step 4 — Comments                                                    #
     # ------------------------------------------------------------------ #
     all_comments: dict = {}
     if not args.skip_comments:
-        _step(4, TOTAL_STEPS, "抓取留言（僅新影片）…")
+        _step(4, TOTAL_STEPS, "Fetching comments (new videos only)...")
         try:
             refresh_ids = all_video_ids if args.refresh_comments else new_video_ids
             all_comments = comment_scraper.fetch_batch(
@@ -226,54 +338,65 @@ def main() -> None:
                 force=args.force_refresh,
             )
             total_comments = sum(len(c) for c in all_comments.values())
-            print(f"   → 共 {total_comments} 則留言（{len(all_comments)} 支影片）")
+            print(f"   -> {total_comments} comments across {len(all_comments)} videos")
         except Exception as exc:
-            _warn(f"留言抓取失敗，跳過：{exc}")
+            _warn(f"Comment fetch failed, skipping: {exc}")
     else:
-        _step(4, TOTAL_STEPS, "跳過留言（--skip-comments）")
+        _step(4, TOTAL_STEPS, "Skipping comments (--skip-comments)")
+
+    # ------------------------------------------------------------------ #
+    # Data-only mode: print cost estimate and exit                         #
+    # ------------------------------------------------------------------ #
+    if args.data_only:
+        _estimate_cost(
+            videos=videos,
+            transcripts=transcripts,
+            all_comments=all_comments,
+        )
+        return
 
     # ------------------------------------------------------------------ #
     # Step 5 — Audience analysis                                           #
     # ------------------------------------------------------------------ #
     audience_result: dict = {}
     if not args.skip_comments and all_comments:
-        _step(5, TOTAL_STEPS, "Claude 分析 TA 輪廓…")
+        _step(5, TOTAL_STEPS, "Claude: analysing audience profile...")
         try:
             audience_result = audience_analyzer.analyze(
                 all_comments=all_comments,
                 videos=videos,
                 channel_title=channel_title,
             )
-            print(f"   → 分析完成（{audience_result.get('comment_count', 0)} 則留言）")
+            print(f"   -> Done ({audience_result.get('comment_count', 0)} comments)")
         except Exception as exc:
-            _warn(f"TA 分析失敗：{exc}")
+            _warn(f"Audience analysis failed: {exc}")
     else:
-        _step(5, TOTAL_STEPS, "跳過 TA 分析（無留言資料）")
+        _step(5, TOTAL_STEPS, "Skipping audience analysis (no comment data)")
 
     # ------------------------------------------------------------------ #
     # Step 6 — Brand analysis                                              #
     # ------------------------------------------------------------------ #
     brand_result: dict = {}
     if not args.skip_transcripts and transcripts:
-        _step(6, TOTAL_STEPS, "Claude 分析品牌定位…")
+        _step(6, TOTAL_STEPS, "Claude: analysing brand positioning...")
         try:
             brand_result = brand_analyzer.analyze(
                 transcripts=transcripts,
                 videos=videos,
                 channel_title=channel_title,
             )
-            print(f"   → 分析完成（{brand_result.get('video_count', 0)} 支影片）")
+            print(f"   -> Done ({brand_result.get('video_count', 0)} videos)")
         except Exception as exc:
-            _warn(f"品牌分析失敗：{exc}")
+            _warn(f"Brand analysis failed: {exc}")
     else:
-        _step(6, TOTAL_STEPS, "跳過品牌分析（無逐字稿資料）")
+        _step(6, TOTAL_STEPS, "Skipping brand analysis (no transcript data)")
 
     # ------------------------------------------------------------------ #
     # Step 7 — Location / food / equipment extraction                      #
     # ------------------------------------------------------------------ #
     location_agg: dict = {}
     if not args.skip_transcripts and not args.skip_extraction and transcripts:
-        _step(7, TOTAL_STEPS, "萃取地點、食物、設備資料庫…")
+        _step(7, TOTAL_STEPS, "Extracting locations, food, equipment...")
         try:
             loc_results = location_extractor.extract_batch(
                 videos=videos,
@@ -287,21 +410,21 @@ def main() -> None:
             )
             stats = location_agg.get("stats", {})
             print(
-                f"   → 地點 {stats.get('total_locations', 0)} 筆 ／ "
-                f"食物 {stats.get('total_food_items', 0)} 筆 ／ "
-                f"設備 {stats.get('total_equipment_items', 0)} 筆"
+                f"   -> Locations: {stats.get('total_locations', 0)}  "
+                f"Food: {stats.get('total_food_items', 0)}  "
+                f"Equipment: {stats.get('total_equipment_items', 0)}"
             )
         except Exception as exc:
-            _warn(f"地點/食物/設備萃取失敗：{exc}")
+            _warn(f"Location/food/equipment extraction failed: {exc}")
     else:
-        _step(7, TOTAL_STEPS, "跳過地點萃取")
+        _step(7, TOTAL_STEPS, "Skipping location extraction")
 
     # ------------------------------------------------------------------ #
     # Step 8 — Knowledge extraction                                        #
     # ------------------------------------------------------------------ #
     knowledge_agg: dict = {}
     if not args.skip_transcripts and not args.skip_extraction and transcripts:
-        _step(8, TOTAL_STEPS, "萃取高爾夫知識索引…")
+        _step(8, TOTAL_STEPS, "Extracting golf knowledge index...")
         try:
             know_results = knowledge_extractor.extract_batch(
                 videos=videos,
@@ -315,18 +438,18 @@ def main() -> None:
             )
             stats = knowledge_agg.get("stats", {})
             print(
-                f"   → 知識點 {stats.get('total_knowledge_items', 0)} 個 ／ "
-                f"涵蓋 {stats.get('videos_with_knowledge', 0)} 支影片"
+                f"   -> {stats.get('total_knowledge_items', 0)} knowledge items "
+                f"across {stats.get('videos_with_knowledge', 0)} videos"
             )
         except Exception as exc:
-            _warn(f"知識索引萃取失敗：{exc}")
+            _warn(f"Knowledge index extraction failed: {exc}")
     else:
-        _step(8, TOTAL_STEPS, "跳過知識索引萃取")
+        _step(8, TOTAL_STEPS, "Skipping knowledge index extraction")
 
     # ------------------------------------------------------------------ #
     # Step 9 — Output reports                                              #
     # ------------------------------------------------------------------ #
-    _step(9, TOTAL_STEPS, f"輸出報告 → {out_dir}")
+    _step(9, TOTAL_STEPS, f"Writing reports -> {out_dir}")
     written: list[Path] = []
 
     try:
@@ -334,21 +457,21 @@ def main() -> None:
             p = md_reporter.write_audience_report(out_dir, audience_result, channel_title)
             written.append(p)
     except Exception as exc:
-        _warn(f"audience_report.md 寫入失敗：{exc}")
+        _warn(f"audience_report.md write failed: {exc}")
 
     try:
         if brand_result:
             p = md_reporter.write_brand_report(out_dir, brand_result, channel_title)
             written.append(p)
     except Exception as exc:
-        _warn(f"brand_report.md 寫入失敗：{exc}")
+        _warn(f"brand_report.md write failed: {exc}")
 
     try:
         if knowledge_agg:
             p = md_reporter.write_knowledge_index(out_dir, knowledge_agg, channel_title)
             written.append(p)
     except Exception as exc:
-        _warn(f"knowledge_index.md 寫入失敗：{exc}")
+        _warn(f"knowledge_index.md write failed: {exc}")
 
     try:
         p = json_reporter.write_summary(
@@ -363,40 +486,40 @@ def main() -> None:
         )
         written.append(p)
     except Exception as exc:
-        _warn(f"summary.json 寫入失敗：{exc}")
+        _warn(f"summary.json write failed: {exc}")
 
     try:
         if all_comments:
             p = csv_reporter.write_comments(out_dir, all_comments, videos)
             written.append(p)
     except Exception as exc:
-        _warn(f"comments.csv 寫入失敗：{exc}")
+        _warn(f"comments.csv write failed: {exc}")
 
     try:
         if transcripts:
             p = csv_reporter.write_transcripts(out_dir, transcripts, videos)
             written.append(p)
     except Exception as exc:
-        _warn(f"transcripts.csv 寫入失敗：{exc}")
+        _warn(f"transcripts.csv write failed: {exc}")
 
     try:
         if location_agg:
             written.extend(csv_reporter.write_all_location_csvs(out_dir, location_agg))
     except Exception as exc:
-        _warn(f"locations CSV 寫入失敗：{exc}")
+        _warn(f"locations CSV write failed: {exc}")
 
     try:
         if knowledge_agg:
             p = csv_reporter.write_knowledge(out_dir, knowledge_agg)
             written.append(p)
     except Exception as exc:
-        _warn(f"knowledge_index.csv 寫入失敗：{exc}")
+        _warn(f"knowledge_index.csv write failed: {exc}")
 
     # ------------------------------------------------------------------ #
     # Summary                                                              #
     # ------------------------------------------------------------------ #
     print(f"\n{'='*60}")
-    print(f"✅ 分析完成！共輸出 {len(written)} 個檔案：")
+    print(f"Done! {len(written)} files written:")
     for p in written:
         print(f"   {p}")
     print(f"{'='*60}\n")
