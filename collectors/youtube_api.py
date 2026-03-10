@@ -14,6 +14,20 @@ class YouTubeAPIClient:
     def __init__(self, api_key: str):
         self.youtube = build("youtube", "v3", developerKey=api_key)
 
+    def get_channel_id_by_handle(self, channel_input: str) -> tuple[str, str]:
+        """
+        Resolve channel @handle, custom URL, or direct channel ID.
+        Returns (channel_id, channel_title).
+        """
+        channel_id = self.get_channel_id(channel_input)
+        resp = self.youtube.channels().list(
+            part="snippet",
+            id=channel_id,
+        ).execute()
+        items = resp.get("items", [])
+        title = items[0]["snippet"]["title"] if items else channel_id
+        return channel_id, title
+
     def get_channel_id(self, channel_input: str) -> str:
         """
         Resolve channel @handle, custom URL, or direct channel ID.

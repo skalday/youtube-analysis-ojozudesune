@@ -9,6 +9,11 @@ import argparse
 import sys
 from pathlib import Path
 
+# Ensure UTF-8 output on Windows (Japanese/CJK channel names)
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -209,7 +214,7 @@ def main() -> None:
     missing = []
     if not settings.youtube_api_key:
         missing.append("YOUTUBE_API_KEY")
-    if not settings.anthropic_api_key:
+    if not settings.anthropic_api_key and not args.data_only:
         missing.append("ANTHROPIC_API_KEY")
     if missing:
         print(
@@ -237,12 +242,10 @@ def main() -> None:
     cache = CacheManager(store)
     yt = YouTubeAPIClient(api_key=settings.youtube_api_key)
     transcript_fetcher = TranscriptFetcher(
-        languages=settings.transcript_languages,
-        store=store,
+        preferred_languages=settings.transcript_languages,
     )
     comment_scraper = CommentScraper(
-        api_client=yt,
-        store=store,
+        api_key=settings.youtube_api_key,
         max_per_video=args.max_comments,
     )
     claude = ClaudeClient(
@@ -305,11 +308,10 @@ def main() -> None:
     if not args.skip_transcripts:
         _step(3, TOTAL_STEPS, "Fetching transcripts (new videos only)...")
         try:
+            cached_ids = set(all_video_ids) - set(new_video_ids)
             transcripts = transcript_fetcher.fetch_batch(
                 video_ids=all_video_ids,
-                new_only_ids=new_video_ids,
-                channel_id=channel_id,
-                force=args.force_refresh,
+                skip_existing_ids=set() if args.force_refresh else cached_ids,
             )
             fetched = sum(1 for t in transcripts.values() if t)
             print(f"   -> Transcripts fetched: {fetched} / {len(all_video_ids)}")
@@ -330,12 +332,10 @@ def main() -> None:
     if not args.skip_comments:
         _step(4, TOTAL_STEPS, "Fetching comments (new videos only)...")
         try:
-            refresh_ids = all_video_ids if args.refresh_comments else new_video_ids
+            refresh_ids = set(all_video_ids) if args.refresh_comments else set(new_video_ids)
             all_comments = comment_scraper.fetch_batch(
                 video_ids=all_video_ids,
-                fetch_ids=refresh_ids,
-                channel_id=channel_id,
-                force=args.force_refresh,
+                skip_existing_ids=set() if args.force_refresh else (set(all_video_ids) - refresh_ids),
             )
             total_comments = sum(len(c) for c in all_comments.values())
             print(f"   -> {total_comments} comments across {len(all_comments)} videos")

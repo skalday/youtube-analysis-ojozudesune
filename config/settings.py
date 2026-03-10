@@ -26,8 +26,6 @@ def load_settings() -> Settings:
 
     if not youtube_api_key:
         raise ValueError("YOUTUBE_API_KEY is not set. Please check your .env file.")
-    if not anthropic_api_key:
-        raise ValueError("ANTHROPIC_API_KEY is not set. Please check your .env file.")
 
     raw_langs = os.getenv("TRANSCRIPT_LANGUAGES", "ja,zh-Hant,zh-Hans,en")
     transcript_languages = [lang.strip() for lang in raw_langs.split(",") if lang.strip()]
