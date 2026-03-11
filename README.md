@@ -2,16 +2,6 @@
 
 Fetch transcripts and comments from a YouTube channel, then use Claude AI to analyse audience profiles, brand positioning, and build a location/knowledge database.
 
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| Audience profile analysis | Infer audience age, interests, pain points, and language patterns from comments |
-| Brand positioning analysis | Extract content themes, communication style, and value propositions from transcripts |
-| Location / food / equipment database | Extract golf courses, restaurants, and gear mentioned per episode — importable to Google My Maps |
-| Golf knowledge index | Organise knowledge and tips per episode with video links for direct reference |
-| Incremental updates | Auto-detect new videos, fetch only new data, preserve historical analysis snapshots |
-
 ## Quick Start
 
 ### 1. Install dependencies
@@ -28,7 +18,7 @@ cp .env.example .env
 ```
 
 **How to get API keys:**
-- YouTube Data API v3: [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → Enable YouTube Data API v3
+- YouTube Data API v3: [Google Cloud Console](https://console.cloud.google.com/apis/credentials) 
 - Anthropic API: [console.anthropic.com](https://console.anthropic.com/)
 
 ### 3. Preview data size and estimated cost (no Claude API calls)
