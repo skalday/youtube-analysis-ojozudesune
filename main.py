@@ -37,9 +37,9 @@ Examples:
     parser.add_argument(
         "--max-comments",
         type=int,
-        default=100,
+        default=500,
         metavar="N",
-        help="Maximum comments to fetch per video (default: 100)",
+        help="Maximum comments to fetch per video (default: 500)",
     )
     parser.add_argument(
         "--force-refresh",
@@ -338,11 +338,13 @@ def main() -> None:
     # ------------------------------------------------------------------ #
     all_comments: dict = {}
     if not args.skip_comments:
-        _step(4, TOTAL_STEPS, "Fetching comments (new videos only)...")
+        _step(4, TOTAL_STEPS, "Fetching comments for regular videos only...")
         try:
-            refresh_ids = all_video_ids if args.refresh_comments else new_video_ids
+            regular_video_ids = [v["video_id"] for v in videos if not v.get("is_short")]
+            regular_new_ids = [vid for vid in new_video_ids if vid in set(regular_video_ids)]
+            refresh_ids = regular_video_ids if args.refresh_comments else regular_new_ids
             all_comments = comment_scraper.fetch_batch(
-                video_ids=all_video_ids,
+                video_ids=regular_video_ids,
                 fetch_ids=refresh_ids,
                 channel_id=channel_id,
                 force=args.force_refresh,

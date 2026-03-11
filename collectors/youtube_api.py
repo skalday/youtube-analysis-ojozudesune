@@ -78,13 +78,26 @@ class YouTubeAPIClient:
         stop=stop_after_attempt(4),
         wait=wait_exponential(multiplier=2, min=2, max=30),
     )
-    def _list_videos_page(self, channel_id: str, page_token: str | None, max_results: int) -> dict:
-        return self.youtube.search().list(
-            part="id",
-            channelId=channel_id,
-            type="video",
-            order="date",
-            maxResults=min(max_results, 50),
+    def _get_uploads_playlist_id(self, channel_id: str) -> str:
+        resp = self.youtube.channels().list(
+            part="contentDetails",
+            id=channel_id,
+        ).execute()
+        items = resp.get("items", [])
+        if not items:
+            raise ValueError(f"Channel not found: {channel_id}")
+        return items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+
+    @retry(
+        retry=retry_if_exception_type(HttpError),
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=2, min=2, max=30),
+    )
+    def _list_playlist_page(self, playlist_id: str, page_token: str | None) -> dict:
+        return self.youtube.playlistItems().list(
+            part="contentDetails",
+            playlistId=playlist_id,
+            maxResults=50,
             pageToken=page_token,
         ).execute()
 
@@ -102,18 +115,22 @@ class YouTubeAPIClient:
     def list_channel_videos(self, channel_id: str, max_results: int = 20) -> list:
         """
         Return list of video metadata dicts, newest first.
+        Uses uploads playlist (1 unit/page) instead of search.list (100 units/page).
         Each dict: {video_id, title, published_at, description,
                     view_count, like_count, comment_count, duration, thumbnail_url}
         """
+        playlist_id = self._get_uploads_playlist_id(channel_id)
+
         video_ids = []
         page_token = None
 
         while len(video_ids) < max_results:
-            fetch_count = min(max_results - len(video_ids), 50)
-            resp = self._list_videos_page(channel_id, page_token, fetch_count)
+            resp = self._list_playlist_page(playlist_id, page_token)
 
             for item in resp.get("items", []):
-                video_ids.append(item["id"]["videoId"])
+                video_ids.append(item["contentDetails"]["videoId"])
+                if len(video_ids) >= max_results:
+                    break
 
             page_token = resp.get("nextPageToken")
             if not page_token:
@@ -150,7 +167,7 @@ class YouTubeAPIClient:
                     "comment_count": int(stats.get("commentCount", 0)),
                     "duration": duration_iso,
                     "duration_seconds": duration_sec,
-                    "is_short": duration_sec <= 60,
+                    "is_short": duration_sec < 300,
                     "thumbnail_url": thumb.get("url", ""),
                     "channel_id": snippet.get("channelId", ""),
                     "channel_title": snippet.get("channelTitle", ""),
