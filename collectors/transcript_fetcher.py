@@ -1,5 +1,19 @@
+import logging
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
+from youtube_transcript_api._errors import (
+    VideoUnavailable,
+    IpBlocked,
+    RequestBlocked,
+)
+try:
+    from youtube_transcript_api._errors import PoTokenRequired
+    _POT_REQUIRED_AVAILABLE = True
+except ImportError:
+    _POT_REQUIRED_AVAILABLE = False
+
 from tqdm import tqdm
+
+logger = logging.getLogger(__name__)
 
 
 class TranscriptFetcher:
@@ -79,8 +93,35 @@ class TranscriptFetcher:
             }
 
         except TranscriptsDisabled:
+            logger.debug("Transcripts disabled for video %s", video_id)
             return None
-        except Exception:
+        except VideoUnavailable:
+            logger.debug("Video unavailable: %s", video_id)
+            return None
+        except IpBlocked:
+            logger.warning(
+                "IP blocked by YouTube while fetching transcript for %s. "
+                "Consider using a proxy.",
+                video_id,
+            )
+            return None
+        except RequestBlocked:
+            logger.warning(
+                "Request blocked by YouTube while fetching transcript for %s. "
+                "Consider using a proxy or waiting before retrying.",
+                video_id,
+            )
+            return None
+        except Exception as exc:
+            # PoTokenRequired may not exist in all v1.x minor releases; handle by name
+            if type(exc).__name__ == "PoTokenRequired":
+                logger.warning(
+                    "YouTube requires a proof-of-origin token (PoToken) for video %s. "
+                    "Transcript unavailable in this environment.",
+                    video_id,
+                )
+                return None
+            logger.warning("Failed to fetch transcript for %s: %s", video_id, exc)
             return None
 
     def fetch_batch(
