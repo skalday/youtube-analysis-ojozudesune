@@ -3,8 +3,10 @@ from tqdm import tqdm
 
 
 class TranscriptFetcher:
-    def __init__(self, preferred_languages: list | None = None):
-        self.preferred_languages = preferred_languages or ["ja", "zh-Hant", "zh-Hans", "en"]
+    def __init__(self, languages: list | None = None, store=None):
+        self.preferred_languages = languages or ["ja", "zh-Hant", "zh-Hans", "en"]
+        self.store = store
+        self._api = YouTubeTranscriptApi()  # v1.x: instance-based API
 
     def fetch(self, video_id: str) -> dict | None:
         """
@@ -12,7 +14,7 @@ class TranscriptFetcher:
         Returns dict or None if unavailable.
         """
         try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            transcript_list = self._api.list(video_id)  # v1.x: api.list()
 
             transcript = None
             used_language = None
@@ -53,11 +55,12 @@ class TranscriptFetcher:
             if transcript is None:
                 return None
 
-            segments = transcript.fetch()
+            # v1.x: fetch() returns FetchedTranscript; snippets are dataclasses
+            fetched = transcript.fetch()
             full_text = " ".join(
-                seg.get("text", "").replace("\n", " ").strip()
-                for seg in segments
-                if seg.get("text", "").strip()
+                seg.text.replace("\n", " ").strip()
+                for seg in fetched
+                if seg.text.strip()
             )
 
             return {
@@ -67,11 +70,11 @@ class TranscriptFetcher:
                 "full_text": full_text,
                 "segments": [
                     {
-                        "text": seg.get("text", ""),
-                        "start": seg.get("start", 0),
-                        "duration": seg.get("duration", 0),
+                        "text": seg.text,
+                        "start": seg.start,
+                        "duration": seg.duration,
                     }
-                    for seg in segments
+                    for seg in fetched
                 ],
             }
 
@@ -80,17 +83,36 @@ class TranscriptFetcher:
         except Exception:
             return None
 
-    def fetch_batch(self, video_ids: list, skip_existing_ids: set | None = None) -> dict:
+    def fetch_batch(
+        self,
+        video_ids: list,
+        new_only_ids: list | None = None,
+        channel_id: str | None = None,
+        force: bool = False,
+    ) -> dict:
         """
-        Fetch transcripts for multiple videos.
-        Returns {video_id: transcript_dict_or_None}
+        Fetch transcripts for multiple videos, using cache for non-new videos.
+        Returns {video_id: transcript_dict_or_None} for all video_ids.
         """
+        fetch_set = set(new_only_ids if new_only_ids is not None else video_ids)
         results = {}
-        skip = skip_existing_ids or set()
 
-        to_fetch = [vid for vid in video_ids if vid not in skip]
+        to_fetch = []
+        for video_id in video_ids:
+            if not force and video_id not in fetch_set:
+                if self.store and channel_id:
+                    path = self.store.transcript_path(channel_id, video_id)
+                    cached = self.store.load_json(path)
+                    if cached is not None:
+                        results[video_id] = cached
+                        continue
+            to_fetch.append(video_id)
 
         for video_id in tqdm(to_fetch, desc="Fetching transcripts", unit="vid"):
-            results[video_id] = self.fetch(video_id)
+            transcript = self.fetch(video_id)
+            results[video_id] = transcript
+            if transcript and self.store and channel_id:
+                path = self.store.transcript_path(channel_id, video_id)
+                self.store.save_json(path, transcript)
 
         return results

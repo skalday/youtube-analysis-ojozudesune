@@ -289,7 +289,17 @@ def main() -> None:
         print(f"Failed to fetch video list: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    all_video_ids = [v["video_id"] for v in videos]
+    # Save video list to disk for later reference
+    store.save_json(store.video_list_path(channel_id), videos)
+
+    shorts_count = sum(1 for v in videos if v.get("is_short"))
+    print(f"   -> Regular: {len(videos) - shorts_count} / Shorts: {shorts_count}")
+
+    # Regular videos first, then Shorts (for comment fetch priority)
+    all_video_ids = (
+        [v["video_id"] for v in videos if not v.get("is_short")]
+        + [v["video_id"] for v in videos if v.get("is_short")]
+    )
 
     if args.force_refresh:
         new_video_ids = all_video_ids

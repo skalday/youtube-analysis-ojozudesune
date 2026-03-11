@@ -1,7 +1,19 @@
+import re
 import time
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+
+def _parse_duration_seconds(iso_duration: str) -> int:
+    """Parse ISO 8601 duration string to total seconds. e.g. PT1M30S -> 90"""
+    match = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", iso_duration or "")
+    if not match:
+        return 0
+    h = int(match.group(1) or 0)
+    m = int(match.group(2) or 0)
+    s = int(match.group(3) or 0)
+    return h * 3600 + m * 60 + s
 
 
 def _is_retryable(exc):
@@ -15,25 +27,37 @@ class YouTubeAPIClient:
         self.youtube = build("youtube", "v3", developerKey=api_key)
 
     def get_channel_id(self, channel_input: str) -> str:
+        """Resolve channel @handle or ID. Returns channel ID string."""
+        channel_id, _ = self.get_channel_id_by_handle(channel_input)
+        return channel_id
+
+    def get_channel_id_by_handle(self, channel_input: str) -> tuple:
         """
         Resolve channel @handle, custom URL, or direct channel ID.
-        Returns channel ID string.
+        Returns (channel_id, channel_title) tuple.
         """
         # Already a channel ID (starts with UC)
         if channel_input.startswith("UC"):
-            return channel_input
+            resp = self.youtube.channels().list(
+                part="snippet",
+                id=channel_input,
+            ).execute()
+            items = resp.get("items", [])
+            if items:
+                return items[0]["id"], items[0]["snippet"]["title"]
+            raise ValueError(f"Channel not found: {channel_input}")
 
         handle = channel_input.lstrip("@")
 
         # Try forHandle lookup (new API)
         try:
             resp = self.youtube.channels().list(
-                part="id",
+                part="snippet",
                 forHandle=handle,
             ).execute()
             items = resp.get("items", [])
             if items:
-                return items[0]["id"]
+                return items[0]["id"], items[0]["snippet"]["title"]
         except HttpError:
             pass
 
@@ -47,7 +71,7 @@ class YouTubeAPIClient:
         items = resp.get("items", [])
         if not items:
             raise ValueError(f"Cannot find channel: {channel_input}")
-        return items[0]["snippet"]["channelId"]
+        return items[0]["snippet"]["channelId"], items[0]["snippet"]["channelTitle"]
 
     @retry(
         retry=retry_if_exception_type(HttpError),
@@ -114,6 +138,8 @@ class YouTubeAPIClient:
                     or thumbnails.get("default")
                     or {}
                 )
+                duration_iso = item.get("contentDetails", {}).get("duration", "")
+                duration_sec = _parse_duration_seconds(duration_iso)
                 videos.append({
                     "video_id": item["id"],
                     "title": snippet.get("title", ""),
@@ -122,7 +148,9 @@ class YouTubeAPIClient:
                     "view_count": int(stats.get("viewCount", 0)),
                     "like_count": int(stats.get("likeCount", 0)),
                     "comment_count": int(stats.get("commentCount", 0)),
-                    "duration": item.get("contentDetails", {}).get("duration", ""),
+                    "duration": duration_iso,
+                    "duration_seconds": duration_sec,
+                    "is_short": duration_sec <= 60,
                     "thumbnail_url": thumb.get("url", ""),
                     "channel_id": snippet.get("channelId", ""),
                     "channel_title": snippet.get("channelTitle", ""),
