@@ -93,7 +93,7 @@ python main.py --channel @ChannelHandle --skip-extraction
 python main.py --channel @ChannelHandle --refresh-comments
 ```
 
-### Full CLI reference
+### Full CLI reference (`main.py`)
 
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -108,8 +108,46 @@ python main.py --channel @ChannelHandle --refresh-comments
 | `--video` | Fetch transcript for a single video ID, skips channel list fetch | — |
 | `--skip-transcripts` | Skip transcript fetching and related analyses | `false` |
 | `--skip-comments` | Skip comment fetching and audience analysis | `false` |
-| `--skip-extraction` | Skip location/knowledge extraction | `false` |
+| `--skip-extraction` | Skip location/knowledge extraction (audience + brand only, much faster) | `false` |
 | `--output-dir` | Report output root directory | `./reports` |
+
+---
+
+## Offline analysis (no YouTube API needed)
+
+If data has already been collected and saved under `data/`, use `analyze_local.py` to run LLM analysis directly on the cached files — no YouTube API key required.
+
+```bash
+# Audience + brand analysis only (fastest)
+python analyze_local.py --channel-id UCxxxxxxxxxx --llm local --skip-extraction
+
+# Full analysis including location / knowledge extraction
+python analyze_local.py --channel-id UCxxxxxxxxxx --llm local
+
+# Use a specific Ollama model
+python analyze_local.py --channel-id UCxxxxxxxxxx --llm local --model gemma3:12b
+
+# Limit to the N most recent videos
+python analyze_local.py --channel-id UCxxxxxxxxxx --llm local --max-videos 20
+
+# Use Claude API instead of local
+python analyze_local.py --channel-id UCxxxxxxxxxx --llm claude
+```
+
+### Full CLI reference (`analyze_local.py`)
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--channel-id` | Channel ID from the `data/` directory (required) | — |
+| `--data-dir` | Base data directory | `./data` |
+| `--output-dir` | Report output root directory | `./reports` |
+| `--llm` | LLM backend: `claude` or `local` (Ollama) | `local` |
+| `--model` | Override model name (e.g. `gemma3:12b`, `qwen3:8b`) | `qwen3:8b` |
+| `--ollama-url` | Ollama API base URL | `http://localhost:11434/v1` |
+| `--max-videos` | Limit number of videos included in analysis | all |
+| `--skip-audience` | Skip audience analysis (comments) | `false` |
+| `--skip-brand` | Skip brand analysis (transcripts) | `false` |
+| `--skip-extraction` | Skip location/knowledge extraction — runs only audience + brand, much faster | `false` |
 
 ---
 
@@ -117,19 +155,24 @@ python main.py --channel @ChannelHandle --refresh-comments
 
 ### Report files
 
+Files generated depend on which flags are used:
+
 ```
 reports/{channel_id}/
-├── audience_report.md       # Audience profile (demographics, sentiment, interests)
-├── brand_report.md          # Brand positioning and content themes
+├── audience_report.md       # Audience profile — generated unless --skip-comments / --skip-audience
+├── brand_report.md          # Brand positioning  — generated unless --skip-transcripts / --skip-brand
+├── comments.csv             # Raw comments export — generated unless --skip-comments / --skip-audience
+├── transcripts.csv          # Raw transcripts export — generated unless --skip-transcripts / --skip-brand
+├── summary.json             # Aggregated stats + analysis snapshots (always written)
+│
+│   # The following are only generated when extraction is NOT skipped
+│   # (i.e. --skip-extraction is NOT set)
 ├── knowledge_index.md       # Knowledge index with video links
 ├── knowledge_index.csv      # Knowledge index (filterable in Excel)
 ├── locations_database.json  # Full location / food / equipment database
 ├── locations_database.csv   # Locations (importable to Google My Maps)
 ├── food_database.csv        # Food items mentioned across videos
-├── equipment_database.csv   # Equipment / gear mentioned
-├── comments.csv             # Raw comments export
-├── transcripts.csv          # Raw transcripts export
-└── summary.json             # Aggregated stats + analysis history snapshots
+└── equipment_database.csv   # Equipment / gear mentioned
 ```
 
 ### Raw data cache
@@ -151,7 +194,8 @@ Cached data is reused on subsequent runs — only new videos trigger API calls.
 ## Project structure
 
 ```
-├── main.py              # CLI entry point
+├── main.py              # CLI entry point (fetch + analyse, requires YouTube API)
+├── analyze_local.py     # Offline analysis on cached data (no YouTube API needed)
 ├── config/              # Settings and .env loader
 ├── collectors/          # YouTube Data API + transcript fetching
 ├── analyzers/           # LLM clients (Claude / Ollama) + audience/brand analysis
