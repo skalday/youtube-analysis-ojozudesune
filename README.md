@@ -9,7 +9,7 @@ Fetch transcripts and comments from a YouTube channel, then use an LLM to analys
 - **Audience analysis** — infers viewer demographics, sentiment, interests, and engagement patterns from comments
 - **Brand analysis** — analyses channel tone, positioning, and content themes from transcripts
 - **Knowledge index** — builds a per-video index of golf tips and techniques
-- **Dual LLM backend** — use Claude API (cloud) or a local Ollama model; switchable per run
+- **Dual LLM backend** — use Claude API (cloud) or a local Ollama model; configured via `.env`
 - **Incremental cache** — only new videos are fetched on subsequent runs; existing data is reused
 
 ---
@@ -33,83 +33,39 @@ Edit `.env` and fill in the relevant values:
 ```env
 # Required
 YOUTUBE_API_KEY=...          # YouTube Data API v3 key
-                             # https://console.cloud.google.com/apis/credentials
 
-# Required only when using --llm claude (default)
-ANTHROPIC_API_KEY=...        # https://console.anthropic.com/
+# LLM backend: "claude" (default) or "local" (Ollama)
+LLM_BACKEND=claude
 
-# Optional overrides
-DEFAULT_CHANNEL_ID=@handle   # Default channel if --channel is omitted
-MAX_VIDEOS=120               # Default video limit
-MAX_COMMENTS_PER_VIDEO=100
-
+# Required when LLM_BACKEND=claude
+ANTHROPIC_API_KEY=...
 CLAUDE_MODEL=claude-sonnet-4-6
-CLAUDE_MAX_TOKENS=8096
 
-# Local LLM (Ollama)
+# Required when LLM_BACKEND=local
 LOCAL_LLM_URL=http://localhost:11434/v1
 LOCAL_LLM_MODEL=gemma3:12b
+
+# Data fetching limits
+MAX_VIDEOS=50
+MAX_COMMENTS_PER_VIDEO=100
 ```
 
 ---
 
 ## Usage
 
-### Basic run (Claude API)
-
 ```bash
 python main.py --channel @ChannelHandle
 ```
 
-### Use local Ollama model instead
+That's it. All configuration (LLM backend, model, video/comment limits, output paths) is read from `.env`.
 
-```bash
-# Uses LOCAL_LLM_MODEL from .env (default: gemma3:12b)
-python main.py --channel @ChannelHandle --llm local
+To switch between Claude and Ollama, set `LLM_BACKEND` in `.env`:
 
-# Override model for this run
-python main.py --channel @ChannelHandle --llm local --llm-model qwen2.5:32b
+```env
+LLM_BACKEND=local   # use Ollama
+LLM_BACKEND=claude  # use Claude API (default)
 ```
-
-### Common options
-
-```bash
-# Analyse 50 videos, fetch up to 200 comments each
-python main.py --channel @ChannelHandle --max-videos 50 --max-comments 200
-
-# Force re-fetch all data (ignore cache)
-python main.py --channel @ChannelHandle --force-refresh
-
-# Transcripts + brand analysis only (skip comments)
-python main.py --channel @ChannelHandle --skip-comments
-
-# Comments + audience analysis only (skip transcripts)
-python main.py --channel @ChannelHandle --skip-transcripts
-
-# Skip location/knowledge extraction (faster, audience + brand only)
-python main.py --channel @ChannelHandle --skip-extraction
-
-# Refresh comments for already-cached videos
-python main.py --channel @ChannelHandle --refresh-comments
-```
-
-### Full CLI reference
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--channel` | YouTube channel `@handle` or channel ID (required) | — |
-| `--llm` | LLM backend: `claude` or `local` (Ollama) | `claude` |
-| `--llm-model` | Override model name for this run | from `.env` |
-| `--max-videos` | Maximum videos to analyse | `20` |
-| `--max-comments` | Maximum comments per video | `500` |
-| `--force-refresh` | Ignore all cache and re-fetch everything | `false` |
-| `--refresh-comments` | Re-fetch comments for cached videos | `false` |
-| `--retry-failed-transcripts` | Re-fetch transcripts that previously failed (no file saved) | `false` |
-| `--video` | Fetch transcript for a single video ID, skips channel list fetch | — |
-| `--skip-transcripts` | Skip transcript fetching and related analyses | `false` |
-| `--skip-comments` | Skip comment fetching and audience analysis | `false` |
-| `--skip-extraction` | Skip location/knowledge extraction | `false` |
-| `--output-dir` | Report output root directory | `./reports` |
 
 ---
 
