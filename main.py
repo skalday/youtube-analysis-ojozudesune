@@ -9,6 +9,11 @@ import argparse
 import sys
 from pathlib import Path
 
+# Ensure UTF-8 output on Windows (Japanese/CJK channel names)
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -75,8 +80,7 @@ def main() -> None:
     cache = CacheManager(store)
     yt = YouTubeAPIClient(api_key=settings.youtube_api_key)
     transcript_fetcher = TranscriptFetcher(
-        languages=settings.transcript_languages,
-        store=store,
+        preferred_languages=settings.transcript_languages,
     )
     comment_scraper = CommentScraper(
         api_client=yt,
