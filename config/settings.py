@@ -14,6 +14,7 @@ class Settings:
     max_comments_per_video: int
     cache_ttl_hours: int
     transcript_languages: list
+    llm_backend: str
     claude_model: str
     claude_max_tokens: int
     local_llm_url: str
@@ -40,6 +41,7 @@ def load_settings() -> Settings:
         max_comments_per_video=int(os.getenv("MAX_COMMENTS_PER_VIDEO", "100")),
         cache_ttl_hours=int(os.getenv("CACHE_TTL_HOURS", "24")),
         transcript_languages=transcript_languages,
+        llm_backend=os.getenv("LLM_BACKEND", "claude"),
         claude_model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
         claude_max_tokens=int(os.getenv("CLAUDE_MAX_TOKENS", "8096")),
         local_llm_url=os.getenv("LOCAL_LLM_URL", "http://localhost:11434/v1"),

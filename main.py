@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 YouTube Channel Analysis Tool
-Usage: python main.py --channel @ChannelHandle --max-videos 20
+Usage: python main.py --channel @ChannelHandle
 """
 from __future__ import annotations
 
@@ -13,89 +13,13 @@ from pathlib import Path
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Analyse a YouTube channel's audience profile and brand positioning",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python main.py --channel @SomeGolfChannel --max-videos 30
-  python main.py --channel UCxxxxxxxxxx --max-videos 50 --force-refresh
-  python main.py --channel @SomeChannel --skip-comments   # brand analysis only
-        """,
+        epilog="Example:\n  python main.py --channel @SomeGolfChannel",
     )
-
     parser.add_argument(
         "--channel",
         required=True,
         help="YouTube channel @handle or Channel ID",
     )
-    parser.add_argument(
-        "--max-videos",
-        type=int,
-        default=20,
-        metavar="N",
-        help="Maximum number of videos to analyse (default: 20)",
-    )
-    parser.add_argument(
-        "--max-comments",
-        type=int,
-        default=500,
-        metavar="N",
-        help="Maximum comments to fetch per video (default: 500)",
-    )
-    parser.add_argument(
-        "--force-refresh",
-        action="store_true",
-        help="Ignore cache and re-fetch all data",
-    )
-    parser.add_argument(
-        "--skip-transcripts",
-        action="store_true",
-        help="Skip transcript fetching and related analyses (brand, location, knowledge)",
-    )
-    parser.add_argument(
-        "--skip-comments",
-        action="store_true",
-        help="Skip comment fetching and audience analysis",
-    )
-    parser.add_argument(
-        "--skip-extraction",
-        action="store_true",
-        help="Skip location/knowledge structured extraction (run audience/brand only)",
-    )
-    parser.add_argument(
-        "--refresh-comments",
-        action="store_true",
-        help="Re-fetch comments for cached videos (updates top-comment ranking)",
-    )
-    parser.add_argument(
-        "--retry-failed-transcripts",
-        action="store_true",
-        help="Re-fetch transcripts for videos that were previously attempted but failed",
-    )
-    parser.add_argument(
-        "--video",
-        default=None,
-        metavar="VIDEO_ID",
-        help="Fetch transcript for a single video ID (skips channel video list fetch)",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default="./reports",
-        metavar="DIR",
-        help="Report output root directory (default: ./reports)",
-    )
-    parser.add_argument(
-        "--llm",
-        choices=["claude", "local"],
-        default="claude",
-        help="LLM backend to use for analysis (default: claude)",
-    )
-    parser.add_argument(
-        "--llm-model",
-        default=None,
-        metavar="MODEL",
-        help="Override the LLM model name (e.g. qwen2.5:latest for local, claude-haiku-4-5-20251001 for claude)",
-    )
-
     return parser.parse_args()
 
 
@@ -130,21 +54,22 @@ def main() -> None:
     from reporters.csv_reporter import CSVReporter
 
     # ------------------------------------------------------------------ #
-    # LLM client selection                                                 #
+    # LLM client from settings                                            #
     # ------------------------------------------------------------------ #
-    if args.llm == "local":
+    if settings.llm_backend == "local":
         from analyzers.local_llm_client import LocalLLMClient
-        model = args.llm_model or settings.local_llm_model
-        llm = LocalLLMClient(model=model, base_url=settings.local_llm_url)
-        print(f"[LLM] local Ollama  model={model}  url={settings.local_llm_url}")
+        llm = LocalLLMClient(model=settings.local_llm_model, base_url=settings.local_llm_url)
+        print(f"[LLM] local Ollama  model={settings.local_llm_model}  url={settings.local_llm_url}")
     else:
         if not settings.anthropic_api_key:
-            print("ANTHROPIC_API_KEY is not set. Use --llm local for local LLM.", file=sys.stderr)
+            print(
+                "ANTHROPIC_API_KEY is not set. Set LLM_BACKEND=local in .env to use local LLM.",
+                file=sys.stderr,
+            )
             sys.exit(1)
         from analyzers.claude_client import ClaudeClient
-        model = args.llm_model or settings.claude_model
-        llm = ClaudeClient(api_key=settings.anthropic_api_key, model=model)
-        print(f"[LLM] Claude API  model={model}")
+        llm = ClaudeClient(api_key=settings.anthropic_api_key, model=settings.claude_model)
+        print(f"[LLM] Claude API  model={settings.claude_model}")
 
     store = FileStore(base_dir=settings.data_dir)
     cache = CacheManager(store)
@@ -156,7 +81,7 @@ def main() -> None:
     comment_scraper = CommentScraper(
         api_client=yt,
         store=store,
-        max_per_video=args.max_comments,
+        max_per_video=settings.max_comments_per_video,
     )
     audience_analyzer = AudienceAnalyzer(client=llm)
     brand_analyzer = BrandAnalyzer(client=llm)
@@ -180,110 +105,80 @@ def main() -> None:
         print(f"Failed to resolve channel: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    out_dir = Path(args.output_dir) / channel_id
+    out_dir = Path(settings.reports_dir) / channel_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------ #
     # Step 2 — Fetch video list & detect new videos                        #
     # ------------------------------------------------------------------ #
-    if args.video:
-        _step(2, TOTAL_STEPS, f"Single-video mode: {args.video}")
-        videos = [{"video_id": args.video, "title": args.video, "is_short": False}]
-        all_video_ids = [args.video]
-        new_video_ids = [args.video]
-        print(f"   -> Targeting single video, skipping channel list fetch")
-    else:
-        _step(2, TOTAL_STEPS, "Fetching video list, comparing against cache...")
-        try:
-            videos = yt.list_channel_videos(
-                channel_id=channel_id,
-                max_results=args.max_videos,
-            )
-            print(f"   -> {len(videos)} videos fetched")
-        except Exception as exc:
-            print(f"Failed to fetch video list: {exc}", file=sys.stderr)
-            sys.exit(1)
-
-        # Save video list to disk for later reference
-        store.save_json(store.video_list_path(channel_id), videos)
-
-        shorts_count = sum(1 for v in videos if v.get("is_short"))
-        print(f"   -> Regular: {len(videos) - shorts_count} / Shorts: {shorts_count}")
-
-        # Regular videos first, then Shorts (for comment fetch priority)
-        all_video_ids = (
-            [v["video_id"] for v in videos if not v.get("is_short")]
-            + [v["video_id"] for v in videos if v.get("is_short")]
+    _step(2, TOTAL_STEPS, "Fetching video list, comparing against cache...")
+    try:
+        videos = yt.list_channel_videos(
+            channel_id=channel_id,
+            max_results=settings.max_videos,
         )
+        print(f"   -> {len(videos)} videos fetched")
+    except Exception as exc:
+        print(f"Failed to fetch video list: {exc}", file=sys.stderr)
+        sys.exit(1)
 
-        if args.force_refresh:
-            new_video_ids = all_video_ids
-            print("   -> --force-refresh: re-fetching all videos")
-        else:
-            new_video_ids = cache.get_new_video_ids(channel_id, all_video_ids)
-            print(f"   -> New: {len(new_video_ids)} / Cached: {len(all_video_ids) - len(new_video_ids)}")
+    store.save_json(store.video_list_path(channel_id), videos)
+
+    shorts_count = sum(1 for v in videos if v.get("is_short"))
+    print(f"   -> Regular: {len(videos) - shorts_count} / Shorts: {shorts_count}")
+
+    all_video_ids = (
+        [v["video_id"] for v in videos if not v.get("is_short")]
+        + [v["video_id"] for v in videos if v.get("is_short")]
+    )
+
+    new_video_ids = cache.get_new_video_ids(channel_id, all_video_ids)
+    print(f"   -> New: {len(new_video_ids)} / Cached: {len(all_video_ids) - len(new_video_ids)}")
 
     # ------------------------------------------------------------------ #
     # Step 3 — Transcripts                                                 #
     # ------------------------------------------------------------------ #
     transcripts: dict = {}
-    if not args.skip_transcripts:
-        if args.retry_failed_transcripts:
-            cached_transcript_ids = cache.get_cached_transcript_ids(channel_id, all_video_ids)
-            retry_ids = [vid for vid in all_video_ids if vid not in cached_transcript_ids]
-            fetch_ids = list(dict.fromkeys(new_video_ids + retry_ids))  # dedup, preserve order
-            _step(3, TOTAL_STEPS, f"Fetching transcripts (new + {len(retry_ids)} previously failed)...")
-        else:
-            fetch_ids = new_video_ids
-            _step(3, TOTAL_STEPS, "Fetching transcripts (new videos only)...")
-        try:
-            transcripts = transcript_fetcher.fetch_batch(
-                video_ids=all_video_ids,
-                new_only_ids=fetch_ids,
-                channel_id=channel_id,
-                force=args.force_refresh,
-            )
-            fetched = sum(1 for t in transcripts.values() if t)
-            print(f"   -> Transcripts fetched: {fetched} / {len(all_video_ids)}")
+    _step(3, TOTAL_STEPS, "Fetching transcripts (new videos only)...")
+    try:
+        transcripts = transcript_fetcher.fetch_batch(
+            video_ids=all_video_ids,
+            new_only_ids=new_video_ids,
+            channel_id=channel_id,
+        )
+        fetched = sum(1 for t in transcripts.values() if t)
+        print(f"   -> Transcripts fetched: {fetched} / {len(all_video_ids)}")
 
-            # Mark videos that have transcripts
-            transcript_set = {vid for vid, t in transcripts.items() if t}
-            for v in videos:
-                v["has_transcript"] = v["video_id"] in transcript_set
-        except Exception as exc:
-            _warn(f"Transcript fetch failed, skipping: {exc}")
-    else:
-        _step(3, TOTAL_STEPS, "Skipping transcripts (--skip-transcripts)")
+        transcript_set = {vid for vid, t in transcripts.items() if t}
+        for v in videos:
+            v["has_transcript"] = v["video_id"] in transcript_set
+    except Exception as exc:
+        _warn(f"Transcript fetch failed, skipping: {exc}")
 
     # ------------------------------------------------------------------ #
     # Step 4 — Comments                                                    #
     # ------------------------------------------------------------------ #
     all_comments: dict = {}
-    if not args.skip_comments:
-        _step(4, TOTAL_STEPS, "Fetching comments for regular videos only...")
-        try:
-            regular_video_ids = [v["video_id"] for v in videos if not v.get("is_short")]
-            regular_new_ids = [vid for vid in new_video_ids if vid in set(regular_video_ids)]
-            refresh_ids = regular_video_ids if args.refresh_comments else regular_new_ids
-            all_comments = comment_scraper.fetch_batch(
-                video_ids=regular_video_ids,
-                fetch_ids=refresh_ids,
-                channel_id=channel_id,
-                force=args.force_refresh,
-            )
-            total_comments = sum(len(c) for c in all_comments.values())
-            print(f"   -> {total_comments} comments across {len(all_comments)} videos")
-        except Exception as exc:
-            _warn(f"Comment fetch failed, skipping: {exc}")
-    else:
-        _step(4, TOTAL_STEPS, "Skipping comments (--skip-comments)")
+    _step(4, TOTAL_STEPS, "Fetching comments for regular videos only...")
+    try:
+        regular_video_ids = [v["video_id"] for v in videos if not v.get("is_short")]
+        regular_new_ids = [vid for vid in new_video_ids if vid in set(regular_video_ids)]
+        all_comments = comment_scraper.fetch_batch(
+            video_ids=regular_video_ids,
+            fetch_ids=regular_new_ids,
+            channel_id=channel_id,
+        )
+        total_comments = sum(len(c) for c in all_comments.values())
+        print(f"   -> {total_comments} comments across {len(all_comments)} videos")
+    except Exception as exc:
+        _warn(f"Comment fetch failed, skipping: {exc}")
 
     # ------------------------------------------------------------------ #
     # Step 5 — Audience analysis                                           #
     # ------------------------------------------------------------------ #
     audience_result: dict = {}
-    if not args.skip_comments and all_comments:
-        _step(5, TOTAL_STEPS, "Claude: analysing audience profile...")
+    if all_comments:
+        _step(5, TOTAL_STEPS, "Analysing audience profile...")
         try:
             audience_result = audience_analyzer.analyze(
                 all_comments=all_comments,
@@ -300,8 +195,8 @@ def main() -> None:
     # Step 6 — Brand analysis                                              #
     # ------------------------------------------------------------------ #
     brand_result: dict = {}
-    if not args.skip_transcripts and transcripts:
-        _step(6, TOTAL_STEPS, "Claude: analysing brand positioning...")
+    if transcripts:
+        _step(6, TOTAL_STEPS, "Analysing brand positioning...")
         try:
             brand_result = brand_analyzer.analyze(
                 transcripts=transcripts,
@@ -318,19 +213,12 @@ def main() -> None:
     # Step 7 — Location / food / equipment extraction                      #
     # ------------------------------------------------------------------ #
     location_agg: dict = {}
-    if not args.skip_transcripts and not args.skip_extraction and transcripts:
+    if transcripts:
         _step(7, TOTAL_STEPS, "Extracting locations, food, equipment...")
         try:
-            loc_results = location_extractor.extract_batch(
-                videos=videos,
-                transcripts=transcripts,
-            )
+            loc_results = location_extractor.extract_batch(videos=videos, transcripts=transcripts)
             location_agg = location_extractor.aggregate(loc_results)
-            # Save raw per-video JSON
-            store.save_json(
-                str(out_dir / "locations_database.json"),
-                location_agg,
-            )
+            store.save_json(str(out_dir / "locations_database.json"), location_agg)
             stats = location_agg.get("stats", {})
             print(
                 f"   -> Locations: {stats.get('total_locations', 0)}  "
@@ -340,25 +228,18 @@ def main() -> None:
         except Exception as exc:
             _warn(f"Location/food/equipment extraction failed: {exc}")
     else:
-        _step(7, TOTAL_STEPS, "Skipping location extraction")
+        _step(7, TOTAL_STEPS, "Skipping location extraction (no transcript data)")
 
     # ------------------------------------------------------------------ #
     # Step 8 — Knowledge extraction                                        #
     # ------------------------------------------------------------------ #
     knowledge_agg: dict = {}
-    if not args.skip_transcripts and not args.skip_extraction and transcripts:
+    if transcripts:
         _step(8, TOTAL_STEPS, "Extracting golf knowledge index...")
         try:
-            know_results = knowledge_extractor.extract_batch(
-                videos=videos,
-                transcripts=transcripts,
-            )
+            know_results = knowledge_extractor.extract_batch(videos=videos, transcripts=transcripts)
             knowledge_agg = knowledge_extractor.aggregate(know_results)
-            # Save raw per-video JSON
-            store.save_json(
-                str(out_dir / "knowledge_index.json"),
-                knowledge_agg,
-            )
+            store.save_json(str(out_dir / "knowledge_index.json"), knowledge_agg)
             stats = knowledge_agg.get("stats", {})
             print(
                 f"   -> {stats.get('total_knowledge_items', 0)} knowledge items "
@@ -367,7 +248,7 @@ def main() -> None:
         except Exception as exc:
             _warn(f"Knowledge index extraction failed: {exc}")
     else:
-        _step(8, TOTAL_STEPS, "Skipping knowledge index extraction")
+        _step(8, TOTAL_STEPS, "Skipping knowledge index extraction (no transcript data)")
 
     # ------------------------------------------------------------------ #
     # Step 9 — Output reports                                              #
