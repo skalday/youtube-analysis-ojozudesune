@@ -39,7 +39,7 @@ cp .env.example .env
 python main.py --channel @ChannelHandle
 ```
 
-### CLI reference (`main.py`)
+### CLI reference
 
 ```bash
 python main.py --channel @ChannelHandle
@@ -66,7 +66,7 @@ All other options are set in `.env` (copy from `.env.example`):
 
 ---
 
-## Offline analysis (no YouTube API needed)
+## Offline analysis
 
 If data has already been collected and saved under `data/`, use `analyze_local.py` to run LLM analysis directly on the cached files — no YouTube API key required.
 
@@ -86,21 +86,6 @@ python analyze_local.py --channel-id UCxxxxxxxxxx --llm local --max-videos 20
 # Use Claude API instead of local
 python analyze_local.py --channel-id UCxxxxxxxxxx --llm claude
 ```
-
-### CLI reference (`analyze_local.py`)
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--channel-id` | Channel ID from the `data/` directory (required) | — |
-| `--data-dir` | Base data directory | `./data` |
-| `--output-dir` | Report output root directory | `./reports` |
-| `--llm` | LLM backend: `claude` or `local` (Ollama) | `local` |
-| `--model` | Override model name (e.g. `gemma3:12b`, `qwen3:8b`) | `qwen3:8b` |
-| `--ollama-url` | Ollama API base URL | `http://localhost:11434/v1` |
-| `--max-videos` | Limit number of videos included in analysis | all |
-| `--skip-audience` | Skip audience analysis (comments) | `false` |
-| `--skip-brand` | Skip brand analysis (transcripts) | `false` |
-| `--skip-extraction` | Skip location/knowledge extraction — runs only audience + brand, much faster | `false` |
 
 ---
 
