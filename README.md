@@ -8,8 +8,7 @@ Fetch transcripts and comments from a YouTube channel, then use Claude AI to ana
 |---------|-------------|
 | Audience profile analysis | Infer audience age, interests, pain points, and language patterns from comments |
 | Brand positioning analysis | Extract content themes, communication style, and value propositions from transcripts |
-| Location / food / equipment database | Extract golf courses, restaurants, and gear mentioned per episode — importable to Google My Maps |
-| Golf knowledge index | Organise knowledge and tips per episode with video links for direct reference |
+| Knowledge index | Organise knowledge and tips per episode with video links for direct reference |
 | Incremental updates | Auto-detect new videos, fetch only new data, preserve historical analysis snapshots |
 
 ---
