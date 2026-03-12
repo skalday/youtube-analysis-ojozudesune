@@ -33,74 +33,87 @@ cp .env.example .env
 - YouTube Data API v3: [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → Enable YouTube Data API v3
 - Anthropic API: [console.anthropic.com](https://console.anthropic.com/)
 
-### 3. Run full analysis
+### 3. Run
 
 ```bash
-python main.py --channel @ChannelHandle
+# Fetch data + analyse in one step
+python yt.py run --channel @ChannelHandle
+
+# Or separately:
+python yt.py fetch   --channel @ChannelHandle        # download only
+python yt.py analyze --channel-id UCxxxxxxxxxx       # analyse cached data (no YouTube API)
 ```
 
-### CLI reference (`main.py`)
+---
+
+## Commands
+
+### `fetch` — Download data from YouTube
 
 ```bash
-python main.py --channel @ChannelHandle
-python main.py --channel UCxxxxxxxxxx
+python yt.py fetch --channel @ChannelHandle
+python yt.py fetch --channel UCxxxxxxxxxx
 ```
 
-| Flag | Description |
-|------|-------------|
-| `--channel` | YouTube channel @handle or Channel ID (required) |
+Fetches the video list, transcripts, and comments into the local cache. Requires `YOUTUBE_API_KEY`.
 
-All other options are set in `.env` (copy from `.env.example`):
+### `analyze` — Analyse cached data (no YouTube API needed)
 
-| `.env` variable | Description | Default |
-|-----------------|-------------|---------|
+```bash
+# Audience + brand only (fastest)
+python yt.py analyze --channel-id UCxxxxxxxxxx --llm local --skip-extraction
+
+# Full analysis
+python yt.py analyze --channel-id UCxxxxxxxxxx --llm local
+
+# Specific model, limited videos
+python yt.py analyze --channel-id UCxxxxxxxxxx --llm local --model gemma3:12b --max-videos 20
+
+# Use Claude API
+python yt.py analyze --channel-id UCxxxxxxxxxx --llm claude
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--channel-id` | Channel ID from the `data/` directory (required) | — |
+| `--llm` | LLM backend: `claude` or `local` (Ollama) | from `.env` |
+| `--model` | Model name override | from `.env` |
+| `--ollama-url` | Ollama base URL | from `.env` |
+| `--data-dir` | Data directory | `DATA_DIR` from `.env` or `./data` |
+| `--output-dir` | Report output directory | `REPORTS_DIR` from `.env` or `./reports` |
+| `--skip-audience` | Skip audience analysis | `false` |
+| `--skip-brand` | Skip brand analysis | `false` |
+| `--skip-extraction` | Skip location/knowledge extraction | `false` |
+| `--max-videos` | Limit number of videos analysed | all |
+
+### `run` — Fetch + analyse in one step
+
+```bash
+python yt.py run --channel @ChannelHandle
+python yt.py run --channel @ChannelHandle --llm local --skip-extraction
+```
+
+Accepts all the same flags as `analyze`. Requires `YOUTUBE_API_KEY`.
+
+---
+
+## `.env` configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `YOUTUBE_API_KEY` | YouTube Data API v3 key (required for `fetch` / `run`) | — |
+| `ANTHROPIC_API_KEY` | Anthropic API key (required when `LLM_BACKEND=claude`) | — |
 | `LLM_BACKEND` | `claude` or `local` (Ollama) | `claude` |
 | `CLAUDE_MODEL` | Claude model name | `claude-sonnet-4-6` |
-| `LOCAL_LLM_MODEL` | Ollama model name | `gemma3:12b` |
+| `LOCAL_LLM_MODEL` | Ollama model name | `qwen2.5:latest` |
 | `LOCAL_LLM_URL` | Ollama API base URL | `http://localhost:11434/v1` |
-| `MAX_VIDEOS` | Maximum videos to fetch and analyse | `50` |
+| `MAX_VIDEOS` | Maximum videos to fetch | `20` |
 | `MAX_COMMENTS_PER_VIDEO` | Maximum comments per video | `100` |
 | `TRANSCRIPT_LANGUAGES` | Language priority (comma-separated) | `ja,zh-Hant,zh-Hans,en` |
 | `DATA_DIR` | Raw data cache directory | `./data` |
 | `REPORTS_DIR` | Report output directory | `./reports` |
 
----
-
-## Offline analysis (no YouTube API needed)
-
-If data has already been collected and saved under `data/`, use `analyze_local.py` to run LLM analysis directly on the cached files — no YouTube API key required.
-
-```bash
-# Audience + brand analysis only (fastest)
-python analyze_local.py --channel-id UCxxxxxxxxxx --llm local --skip-extraction
-
-# Full analysis including location / knowledge extraction
-python analyze_local.py --channel-id UCxxxxxxxxxx --llm local
-
-# Use a specific Ollama model
-python analyze_local.py --channel-id UCxxxxxxxxxx --llm local --model gemma3:12b
-
-# Limit to the N most recent videos
-python analyze_local.py --channel-id UCxxxxxxxxxx --llm local --max-videos 20
-
-# Use Claude API instead of local
-python analyze_local.py --channel-id UCxxxxxxxxxx --llm claude
-```
-
-### CLI reference (`analyze_local.py`)
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--channel-id` | Channel ID from the `data/` directory (required) | — |
-| `--data-dir` | Base data directory | `./data` |
-| `--output-dir` | Report output root directory | `./reports` |
-| `--llm` | LLM backend: `claude` or `local` (Ollama) | `local` |
-| `--model` | Override model name (e.g. `gemma3:12b`, `qwen3:8b`) | `qwen3:8b` |
-| `--ollama-url` | Ollama API base URL | `http://localhost:11434/v1` |
-| `--max-videos` | Limit number of videos included in analysis | all |
-| `--skip-audience` | Skip audience analysis (comments) | `false` |
-| `--skip-brand` | Skip brand analysis (transcripts) | `false` |
-| `--skip-extraction` | Skip location/knowledge extraction — runs only audience + brand, much faster | `false` |
+CLI flags (`--llm`, `--model`, `--ollama-url`) override `.env` values when provided.
 
 ---
 
@@ -108,33 +121,30 @@ python analyze_local.py --channel-id UCxxxxxxxxxx --llm claude
 
 ### Report files
 
-Files generated depend on which flags are used:
-
 ```
 reports/{channel_id}/
-├── audience_report.md       # Audience profile — generated unless --skip-comments / --skip-audience
-├── brand_report.md          # Brand positioning  — generated unless --skip-transcripts / --skip-brand
+├── audience_report.md       # Audience profile
+├── brand_report.md          # Brand positioning
 ├── comments.csv             # Raw comments export
 ├── transcripts.csv          # Raw transcripts export
-├── summary.json             # Aggregated stats + analysis snapshots (always written)
+├── summary.json             # Aggregated stats + analysis history
 │
-│   # The following are only generated when extraction is NOT skipped
-│   # (i.e. --skip-extraction is NOT set)
-├── knowledge_index.md       # Knowledge index with video links
-├── knowledge_index.csv      # Knowledge index (filterable in Excel)
-├── locations_database.json  # Full location / food / equipment database
-├── locations_database.csv   # Locations (importable to Google My Maps)
-├── food_database.csv        # Food items mentioned across videos
-└── equipment_database.csv   # Equipment / gear mentioned
+│   # Only generated when --skip-extraction is NOT set:
+├── knowledge_index.md
+├── knowledge_index.csv
+├── locations_database.json
+├── locations_database.csv
+├── food_database.csv
+└── equipment_database.csv
 ```
 
 ### Raw data cache
 
 ```
-data/{channel_id}/
-├── videos.json              # Video metadata list
-├── transcripts/{video_id}.json
-└── comments/{video_id}.json
+data/raw/
+├── videos/{channel_id}/video_list.json
+├── transcripts/{channel_id}/{video_id}.json
+└── comments/{channel_id}/{video_id}.json
 ```
 
 Cached data is reused on subsequent runs — only new videos trigger API calls.
@@ -143,23 +153,22 @@ Cached data is reused on subsequent runs — only new videos trigger API calls.
 
 ## Incremental updates
 
-When the channel has new videos, just re-run the same command:
+Re-run `fetch` or `run` at any time:
 
 ```bash
-python main.py --channel @ChannelHandle
+python yt.py fetch --channel @ChannelHandle
 ```
 
-- Already-fetched videos are **read from cache** — no redundant API calls
-- Only **new videos** have their transcripts and comments fetched
-- Each run appends a snapshot to `summary.json`'s `analysis_history` for tracking changes over time
+- Already-fetched videos are read from cache — no redundant API calls
+- Only new videos have their transcripts and comments fetched
+- Each run appends a snapshot to `summary.json`'s `analysis_history`
 
 ---
 
 ## Project structure
 
 ```
-├── main.py              # CLI entry point (fetch + analyse, requires YouTube API)
-├── analyze_local.py     # Offline analysis on cached data (no YouTube API needed)
+├── yt.py                # CLI entry point (fetch / analyze / run)
 ├── config/              # Settings and .env loader
 ├── collectors/          # YouTube Data API + transcript fetching
 ├── analyzers/           # LLM clients (Claude / Ollama) + audience/brand analysis
