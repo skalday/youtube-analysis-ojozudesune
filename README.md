@@ -28,27 +28,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` and fill in the relevant values:
-
-```env
-# Required
-YOUTUBE_API_KEY=...          # YouTube Data API v3 key
-
-# LLM backend: "claude" (default) or "local" (Ollama)
-LLM_BACKEND=claude
-
-# Required when LLM_BACKEND=claude
-ANTHROPIC_API_KEY=...
-CLAUDE_MODEL=claude-sonnet-4-6
-
-# Required when LLM_BACKEND=local
-LOCAL_LLM_URL=http://localhost:11434/v1
-LOCAL_LLM_MODEL=gemma3:12b
-
-# Data fetching limits
-MAX_VIDEOS=50
-MAX_COMMENTS_PER_VIDEO=100
-```
+Edit `.env` and fill in the relevant values.
 
 ---
 
@@ -58,9 +38,9 @@ MAX_COMMENTS_PER_VIDEO=100
 python main.py --channel @ChannelHandle
 ```
 
-That's it. All configuration (LLM backend, model, video/comment limits, output paths) is read from `.env`.
+All configuration is read from `.env`.
 
-To switch between Claude and Ollama, set `LLM_BACKEND` in `.env`:
+To switch between Claude and local LLM, set `LLM_BACKEND` in `.env`:
 
 ```env
 LLM_BACKEND=local   # use Ollama
@@ -99,8 +79,6 @@ data/
 └── processed/
     └── {analysis_type}/{channel_id}/result.json
 ```
-
-Cached data is reused on subsequent runs — only new videos trigger API calls.
 
 ---
 
