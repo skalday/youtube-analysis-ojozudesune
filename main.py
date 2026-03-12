@@ -73,119 +73,19 @@ Examples:
         help="Report output root directory (default: ./reports)",
     )
     parser.add_argument(
-        "--data-only",
-        action="store_true",
-        help="Fetch data only (transcripts + comments), skip Claude analysis, and print token/cost estimate",
+        "--llm",
+        choices=["claude", "local"],
+        default="claude",
+        help="LLM backend to use for analysis (default: claude)",
+    )
+    parser.add_argument(
+        "--llm-model",
+        default=None,
+        metavar="MODEL",
+        help="Override the LLM model name (e.g. qwen2.5:latest for local, claude-haiku-4-5-20251001 for claude)",
     )
 
     return parser.parse_args()
-
-
-def _estimate_cost(
-    videos: list,
-    transcripts: dict,
-    all_comments: dict,
-) -> None:
-    """Print data summary and Claude API cost estimates without calling any API."""
-
-    CHARS_PER_TOKEN = 1.5  # Conservative for Japanese/Chinese CJK content
-
-    # Pricing: (input $/MTok, output $/MTok)
-    PRICING = {
-        "Haiku 4.5 (cheapest)": (0.80,  4.00),
-        "Sonnet 4.6 (default)": (3.00, 15.00),
-    }
-
-    # ── Data stats ──────────────────────────────────────────────────────────
-    transcript_chars: dict[str, int] = {
-        vid: len(t["full_text"])
-        for vid, t in transcripts.items()
-        if t and t.get("full_text")
-    }
-    total_transcript_chars = sum(transcript_chars.values())
-    videos_with_transcripts = len(transcript_chars)
-
-    total_comments = sum(len(c) for c in all_comments.values())
-    comment_chars = sum(
-        sum(len(c.get("text", "")) + len(c.get("video_id", "")) + 20 for c in comments)
-        for comments in all_comments.values()
-    )
-
-    print(f"\n{'='*62}")
-    print("Data Summary")
-    print(f"{'='*62}")
-    print(f"  Videos fetched        : {len(videos):>6}")
-    print(f"  With transcripts      : {videos_with_transcripts:>6}")
-    print(f"  Transcript chars      : {total_transcript_chars:>10,}")
-    print(f"  Total comments        : {total_comments:>10,}")
-    print(f"  Comment chars         : {comment_chars:>10,}")
-
-    # ── Per-analysis token estimates ────────────────────────────────────────
-    # 1. Audience analysis (1 call, comments capped at 3000 by _format_comments)
-    comment_chars_capped = min(comment_chars, 3000 * 150)
-    aud_in  = int(comment_chars_capped / CHARS_PER_TOKEN) + 500
-    aud_out = 1_000
-    aud_calls = 1
-    aud_skip  = not bool(all_comments)
-
-    # 2. Brand analysis (transcripts capped at 80,000 chars, chunked at 60,000)
-    brand_chars   = min(total_transcript_chars, 80_000)
-    brand_chunks  = max(1, -(-brand_chars // 60_000))  # ceiling div
-    brand_in  = int(brand_chars / CHARS_PER_TOKEN) + 500 * brand_chunks
-    brand_out = 2_000 * brand_chunks
-    if brand_chunks > 1:  # extra synthesis call
-        brand_in  += int(brand_chunks * 2_000 / CHARS_PER_TOKEN) + 300
-        brand_out += 2_000
-    brand_calls = brand_chunks + (1 if brand_chunks > 1 else 0)
-    brand_skip  = not bool(transcripts)
-
-    # 3. Location extraction (1 call per video, transcript capped at 25,000 chars)
-    loc_in  = sum(int(min(c, 25_000) / CHARS_PER_TOKEN) + 400 for c in transcript_chars.values())
-    loc_out = 500 * videos_with_transcripts
-    loc_calls = videos_with_transcripts
-    loc_skip  = not bool(transcripts)
-
-    # 4. Knowledge extraction (1 call per video + 1 synthesis)
-    know_in  = loc_in + int(min(videos_with_transcripts * 10, 200) * 80 / CHARS_PER_TOKEN) + 400
-    know_out = 800 * videos_with_transcripts + 500
-    know_calls = videos_with_transcripts + 1
-    know_skip  = not bool(transcripts)
-
-    analysis_rows = [
-        ("Audience analysis",         aud_calls,   aud_in,   aud_out,   aud_skip),
-        ("Brand analysis",            brand_calls, brand_in, brand_out, brand_skip),
-        ("Location/food/equipment",   loc_calls,   loc_in,   loc_out,   loc_skip),
-        ("Golf knowledge index",      know_calls,  know_in,  know_out,  know_skip),
-    ]
-
-    print(f"\n{'='*62}")
-    print("Claude API Token Estimate (full run)")
-    print(f"{'='*62}")
-    hdr = f"  {'Analysis':<26} {'Calls':>6}  {'Input tok':>12}  {'Output tok':>12}"
-    print(hdr)
-    print(f"  {'-'*26} {'-'*6}  {'-'*12}  {'-'*12}")
-
-    grand_in = grand_out = 0
-    for name, calls_n, in_tok, out_tok, skip in analysis_rows:
-        if skip:
-            print(f"  {name:<26}  (no data, skipped)")
-        else:
-            print(f"  {name:<26} {calls_n:>6,}  {in_tok:>12,}  {out_tok:>12,}")
-            grand_in  += in_tok
-            grand_out += out_tok
-
-    print(f"  {'Total':<26} {'':>6}  {grand_in:>12,}  {grand_out:>12,}")
-
-    print(f"\n{'='*62}")
-    print("Estimated Cost (USD)")
-    print(f"{'='*62}")
-    for label, (p_in, p_out) in PRICING.items():
-        cost_usd = (grand_in * p_in + grand_out * p_out) / 1_000_000
-        print(f"  {label:<28}  ${cost_usd:.4f}")
-
-    print(f"\n  * Token estimate: {CHARS_PER_TOKEN} chars per token (CJK content)")
-    print(f"  * Actual cost depends on Anthropic pricing at time of run")
-    print(f"{'='*62}\n")
 
 
 def _warn(msg: str) -> None:
@@ -205,26 +105,11 @@ def main() -> None:
     from config.settings import load_settings
     settings = load_settings()
 
-    # Validate required API keys early
-    missing = []
-    if not settings.youtube_api_key:
-        missing.append("YOUTUBE_API_KEY")
-    if not settings.anthropic_api_key:
-        missing.append("ANTHROPIC_API_KEY")
-    if missing:
-        print(
-            f"Missing required environment variables: {', '.join(missing)}\n"
-            "Copy .env.example to .env and fill in your API keys.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
     from storage.file_store import FileStore
     from storage.cache_manager import CacheManager
     from collectors.youtube_api import YouTubeAPIClient
     from collectors.transcript_fetcher import TranscriptFetcher
     from collectors.comment_scraper import CommentScraper
-    from analyzers.claude_client import ClaudeClient
     from analyzers.audience_analyzer import AudienceAnalyzer
     from analyzers.brand_analyzer import BrandAnalyzer
     from extractors.location_extractor import LocationExtractor
@@ -232,6 +117,23 @@ def main() -> None:
     from reporters.markdown_reporter import MarkdownReporter
     from reporters.json_reporter import JSONReporter
     from reporters.csv_reporter import CSVReporter
+
+    # ------------------------------------------------------------------ #
+    # LLM client selection                                                 #
+    # ------------------------------------------------------------------ #
+    if args.llm == "local":
+        from analyzers.local_llm_client import LocalLLMClient
+        model = args.llm_model or settings.local_llm_model
+        llm = LocalLLMClient(model=model, base_url=settings.local_llm_url)
+        print(f"[LLM] local Ollama  model={model}  url={settings.local_llm_url}")
+    else:
+        if not settings.anthropic_api_key:
+            print("ANTHROPIC_API_KEY is not set. Use --llm local for local LLM.", file=sys.stderr)
+            sys.exit(1)
+        from analyzers.claude_client import ClaudeClient
+        model = args.llm_model or settings.claude_model
+        llm = ClaudeClient(api_key=settings.anthropic_api_key, model=model)
+        print(f"[LLM] Claude API  model={model}")
 
     store = FileStore(base_dir=settings.data_dir)
     cache = CacheManager(store)
@@ -245,15 +147,10 @@ def main() -> None:
         store=store,
         max_per_video=args.max_comments,
     )
-    claude = ClaudeClient(
-        api_key=settings.anthropic_api_key,
-        model=settings.claude_model,
-        max_tokens=settings.claude_max_tokens,
-    )
-    audience_analyzer = AudienceAnalyzer(client=claude)
-    brand_analyzer = BrandAnalyzer(client=claude)
-    location_extractor = LocationExtractor(client=claude)
-    knowledge_extractor = KnowledgeExtractor(client=claude)
+    audience_analyzer = AudienceAnalyzer(client=llm)
+    brand_analyzer = BrandAnalyzer(client=llm)
+    location_extractor = LocationExtractor(client=llm)
+    knowledge_extractor = KnowledgeExtractor(client=llm)
 
     md_reporter = MarkdownReporter()
     json_reporter = JSONReporter(store=store)
@@ -355,17 +252,6 @@ def main() -> None:
             _warn(f"Comment fetch failed, skipping: {exc}")
     else:
         _step(4, TOTAL_STEPS, "Skipping comments (--skip-comments)")
-
-    # ------------------------------------------------------------------ #
-    # Data-only mode: print cost estimate and exit                         #
-    # ------------------------------------------------------------------ #
-    if args.data_only:
-        _estimate_cost(
-            videos=videos,
-            transcripts=transcripts,
-            all_comments=all_comments,
-        )
-        return
 
     # ------------------------------------------------------------------ #
     # Step 5 — Audience analysis                                           #

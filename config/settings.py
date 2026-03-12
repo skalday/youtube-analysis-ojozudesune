@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,6 +16,8 @@ class Settings:
     transcript_languages: list
     claude_model: str
     claude_max_tokens: int
+    local_llm_url: str
+    local_llm_model: str
     data_dir: str
     reports_dir: str
 
@@ -26,8 +28,6 @@ def load_settings() -> Settings:
 
     if not youtube_api_key:
         raise ValueError("YOUTUBE_API_KEY is not set. Please check your .env file.")
-    if not anthropic_api_key:
-        raise ValueError("ANTHROPIC_API_KEY is not set. Please check your .env file.")
 
     raw_langs = os.getenv("TRANSCRIPT_LANGUAGES", "ja,zh-Hant,zh-Hans,en")
     transcript_languages = [lang.strip() for lang in raw_langs.split(",") if lang.strip()]
@@ -42,6 +42,8 @@ def load_settings() -> Settings:
         transcript_languages=transcript_languages,
         claude_model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
         claude_max_tokens=int(os.getenv("CLAUDE_MAX_TOKENS", "8096")),
+        local_llm_url=os.getenv("LOCAL_LLM_URL", "http://localhost:11434/v1"),
+        local_llm_model=os.getenv("LOCAL_LLM_MODEL", "qwen2.5:latest"),
         data_dir=os.getenv("DATA_DIR", "./data"),
         reports_dir=os.getenv("REPORTS_DIR", "./reports"),
     )
