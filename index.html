@@ -16,7 +16,17 @@
         </select>
 
         <h2>已分析的頻道</h2>
-        <div id="channelList">載入中...</div>
+        <select id="channelSelect" onchange="updateChannelMeta()">
+            <option value="">載入中...</option>
+        </select>
+        <p id="channelMeta" style="margin:4px 0;"></p>
+        <div>
+            <button onclick="loadResults(selectedChannelId())">查看結果</button>
+            <button onclick="channelFetchAndAnalyze(selectedChannelId())">補抓並分析</button>
+            <button onclick="channelAnalyzeCached(selectedChannelId())">直接分析</button>
+            <button onclick="channelFetchOnly(selectedChannelId())">僅補抓</button>
+            <button onclick="channelDelete(selectedChannelId())">刪除</button>
+        </div>
 
         <h2>新增頻道</h2>
         <form id="newChannelForm">
@@ -98,30 +108,39 @@
             }
         }
 
+        let cachedChannels = [];
+
+        function selectedChannelId() {
+            return document.getElementById('channelSelect').value;
+        }
+
+        function updateChannelMeta() {
+            const id = selectedChannelId();
+            const ch = cachedChannels.find(c => c.channel_id === id);
+            const el = document.getElementById('channelMeta');
+            if (ch) {
+                el.textContent = `${ch.total_videos} 支影片　上次抓取: ${fmtDate(ch.last_fetched)} ／ 上次分析: ${fmtDate(ch.last_updated)}`;
+            } else {
+                el.textContent = '';
+            }
+        }
+
         async function loadChannelList() {
-            const el = document.getElementById('channelList');
+            const sel = document.getElementById('channelSelect');
             try {
                 const res = await fetch('/api/list_cached_channels');
                 const data = await res.json();
-                if (!data.channels || data.channels.length === 0) {
-                    el.innerHTML = '<p>尚無已分析的頻道</p>';
-                    return;
+                cachedChannels = data.channels || [];
+                if (cachedChannels.length === 0) {
+                    sel.innerHTML = '<option value="">尚無已分析的頻道</option>';
+                } else {
+                    sel.innerHTML = cachedChannels.map(ch =>
+                        `<option value="${ch.channel_id}">${ch.channel_title}</option>`
+                    ).join('');
                 }
-                el.innerHTML = data.channels.map(ch => `
-                    <div style="border:1px solid #ccc; padding:8px; margin:8px 0;">
-                        <strong>${ch.channel_title}</strong>
-                        （${ch.total_videos} 支影片）<br>
-                        上次抓取: ${fmtDate(ch.last_fetched)} ／ 上次分析: ${fmtDate(ch.last_updated)}
-                        <br>
-                        <button onclick="loadResults('${ch.channel_id}')">查看結果</button>
-                        <button onclick="channelFetchAndAnalyze('${ch.channel_id}')">補抓並分析</button>
-                        <button onclick="channelAnalyzeCached('${ch.channel_id}')">直接分析</button>
-                        <button onclick="channelFetchOnly('${ch.channel_id}')">僅補抓</button>
-                        <button onclick="channelDelete('${ch.channel_id}', this)">刪除</button>
-                    </div>
-                `).join('');
+                updateChannelMeta();
             } catch {
-                el.innerHTML = '<p>載入失敗</p>';
+                sel.innerHTML = '<option value="">載入失敗</option>';
             }
         }
 
@@ -141,13 +160,14 @@
             }
         }
 
-        async function channelDelete(channelId, btn) {
+        async function channelDelete(channelId) {
+            if (!channelId) return;
             if (!confirm('確定刪除此頻道的所有資料？')) return;
             try {
                 const res = await fetch(`/api/channels/${channelId}`, { method: 'DELETE' });
                 const data = await res.json();
                 if (data.success) {
-                    btn.closest('div').remove();
+                    loadChannelList();
                 } else {
                     alert('刪除失敗: ' + data.error);
                 }
@@ -157,27 +177,18 @@
         }
 
         function channelFetchAndAnalyze(channelId) {
-            runStreamingTask(
-                `/api/channels/${channelId}/fetch_and_analyze`,
-                { localModel: localModelSelect.value },
-                true
-            );
+            if (!channelId) return;
+            runStreamingTask(`/api/channels/${channelId}/fetch_and_analyze`, { localModel: localModelSelect.value }, true);
         }
 
         function channelAnalyzeCached(channelId) {
-            runStreamingTask(
-                `/api/channels/${channelId}/analyze`,
-                { localModel: localModelSelect.value },
-                true
-            );
+            if (!channelId) return;
+            runStreamingTask(`/api/channels/${channelId}/analyze`, { localModel: localModelSelect.value }, true);
         }
 
         function channelFetchOnly(channelId) {
-            runStreamingTask(
-                `/api/channels/${channelId}/fetch`,
-                {},
-                false
-            );
+            if (!channelId) return;
+            runStreamingTask(`/api/channels/${channelId}/fetch`, {}, false);
         }
 
         function runStreamingTask(endpoint, body, showResults) {
