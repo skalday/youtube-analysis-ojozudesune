@@ -11,10 +11,6 @@ class TranscriptFetcher:
         self.preferred_languages = preferred_languages or ["ja", "zh-Hant", "zh-Hans", "en"]
         self.store = store
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     def fetch(self, video_id: str) -> dict | None:
         """Fetch transcript for a single video. Returns dict or None."""
         result = self._fetch_ytdlp(video_id)
@@ -56,10 +52,6 @@ class TranscriptFetcher:
 
         return results
 
-    # ------------------------------------------------------------------
-    # Primary: yt-dlp
-    # ------------------------------------------------------------------
-
     def _fetch_ytdlp(self, video_id: str) -> dict | None:
         url = f"https://www.youtube.com/watch?v={video_id}"
         ydl_opts = {
@@ -76,7 +68,6 @@ class TranscriptFetcher:
         except Exception:
             return None
 
-        # Manual subtitles first, then auto-generated
         for is_auto in [False, True]:
             key = "automatic_captions" if is_auto else "subtitles"
             subs_dict = info.get(key, {}) or {}
@@ -119,20 +110,14 @@ class TranscriptFetcher:
         return None
 
     def _pick_sub_format(self, formats: list) -> tuple[str | None, str | None]:
-        """Return (url, ext) preferring json3 > vtt > others."""
         for preferred_ext in ("json3", "vtt"):
             for fmt in formats:
                 if fmt.get("ext") == preferred_ext:
                     return fmt["url"], preferred_ext
-        # Accept any remaining format
         if formats:
             fmt = formats[0]
             return fmt.get("url"), fmt.get("ext")
         return None, None
-
-    # ------------------------------------------------------------------
-    # Subtitle parsers
-    # ------------------------------------------------------------------
 
     def _parse_json3(self, text: str) -> list:
         try:
@@ -186,10 +171,6 @@ class TranscriptFetcher:
                     "duration": max(0.0, end - start),
                 })
         return segments
-
-    # ------------------------------------------------------------------
-    # Fallback: youtube_transcript_api
-    # ------------------------------------------------------------------
 
     def _fetch_fallback(self, video_id: str) -> dict | None:
         try:

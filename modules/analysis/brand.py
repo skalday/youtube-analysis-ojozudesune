@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from analyzers.claude_client import ClaudeClient
+from modules.llm_providers.base import BaseLLMClient
 
 SYSTEM_PROMPT = """You are a professional personal brand strategy consultant specialising in analysing YouTube video transcripts to determine creator brand positioning.
 Analyse the provided transcript data in depth. Output in English.
@@ -38,10 +38,6 @@ Synthesise all the above analyses into a single consolidated brand positioning J
 
 
 def _format_transcripts(transcripts: dict, videos: list, max_chars: int = 80_000) -> tuple:
-    """
-    Format transcripts sorted by view_count descending.
-    Returns (formatted_text, video_count_with_transcripts)
-    """
     view_lookup = {v["video_id"]: v.get("view_count", 0) for v in videos}
     title_lookup = {v["video_id"]: v["title"] for v in videos}
 
@@ -64,7 +60,6 @@ def _format_transcripts(transcripts: dict, videos: list, max_chars: int = 80_000
         header = f"\n=== [{item['title']}] (views: {item['view_count']:,}) ===\n"
         body = item["text"]
         if total_chars + len(header) + len(body) > max_chars:
-            # Truncate last item to fit
             remaining = max_chars - total_chars - len(header) - 100
             if remaining > 500:
                 lines.append(header + body[:remaining] + "...(truncated)")
@@ -78,27 +73,16 @@ def _format_transcripts(transcripts: dict, videos: list, max_chars: int = 80_000
 
 
 class BrandAnalyzer:
-    def __init__(self, client: ClaudeClient):
+    def __init__(self, client: BaseLLMClient):
         self.client = client
 
     def analyze(self, transcripts: dict, videos: list, channel_title: str = "") -> dict:
-        """
-        Analyze transcripts across multiple videos for brand positioning.
-
-        Args:
-            transcripts: {video_id: transcript_dict_or_None}
-            videos: list of video metadata dicts
-            channel_title: display name of the channel
-
-        Returns:
-            Brand positioning dict
-        """
+        """Analyze transcripts across multiple videos for brand positioning."""
         transcripts_text, video_count = _format_transcripts(transcripts, videos)
 
         if video_count == 0:
             return {"error": "No transcripts available for analysis"}
 
-        # Check if text fits in one chunk
         chunks = self.client.chunk_texts([transcripts_text])
 
         if len(chunks) == 1:
@@ -109,7 +93,6 @@ class BrandAnalyzer:
             )
             result = self.client.analyze_json(SYSTEM_PROMPT, prompt)
         else:
-            # Multi-chunk: analyze each, then synthesize
             partial_results = []
             for i, chunk in enumerate(chunks, 1):
                 prompt = ANALYSIS_PROMPT_TEMPLATE.format(

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from analyzers.claude_client import ClaudeClient
+from modules.llm_providers.base import BaseLLMClient
 
 SYSTEM_PROMPT = """You are a professional audience (TA) analyst specialising in deriving audience profiles from YouTube comments.
 Analyse the provided comment data in depth. Output in English.
@@ -37,11 +37,6 @@ Analyse these comments and output the following JSON structure:
 
 
 def _format_comments(all_comments: dict, videos: list, max_total: int = 3000) -> tuple:
-    """
-    Flatten and sort comments by like_count descending.
-    Returns (formatted_text, total_count, video_count_with_comments)
-    """
-    # Build video title lookup
     title_lookup = {v["video_id"]: v["title"] for v in videos}
 
     flat = []
@@ -54,7 +49,6 @@ def _format_comments(all_comments: dict, videos: list, max_total: int = 3000) ->
                 "like_count": c.get("like_count", 0),
             })
 
-    # Sort by likes descending, take top max_total
     flat.sort(key=lambda x: x["like_count"], reverse=True)
     flat = flat[:max_total]
 
@@ -69,21 +63,11 @@ def _format_comments(all_comments: dict, videos: list, max_total: int = 3000) ->
 
 
 class AudienceAnalyzer:
-    def __init__(self, client: ClaudeClient):
+    def __init__(self, client: BaseLLMClient):
         self.client = client
 
     def analyze(self, all_comments: dict, videos: list, channel_title: str = "") -> dict:
-        """
-        Analyze comments across multiple videos to build TA profile.
-
-        Args:
-            all_comments: {video_id: [comment_dict, ...]}
-            videos: list of video metadata dicts
-            channel_title: display name of the channel
-
-        Returns:
-            TA profile dict
-        """
+        """Analyze comments across multiple videos to build audience profile."""
         comments_text, total_count, video_count = _format_comments(all_comments, videos)
 
         if total_count == 0:
@@ -99,7 +83,6 @@ class AudienceAnalyzer:
         result = self.client.analyze_json(SYSTEM_PROMPT, prompt)
 
         if result is None:
-            # Fallback: return raw text
             raw = self.client.analyze(SYSTEM_PROMPT, prompt)
             result = {"raw_analysis": raw}
 

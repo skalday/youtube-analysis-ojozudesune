@@ -1,9 +1,5 @@
-"""
-MarkdownReporter — Generate human-readable Markdown analysis reports.
-"""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 
@@ -20,16 +16,8 @@ def _write(path: Path, content: str) -> None:
 
 
 class MarkdownReporter:
-    # ------------------------------------------------------------------
-    # audience_report.md
-    # ------------------------------------------------------------------
 
-    def write_audience_report(
-        self,
-        out_dir: str | Path,
-        audience: dict,
-        channel_title: str,
-    ) -> Path:
+    def write_audience_report(self, out_dir: str | Path, audience: dict, channel_title: str) -> Path:
         out_dir = Path(out_dir)
         path = out_dir / "audience_report.md"
 
@@ -40,9 +28,6 @@ class MarkdownReporter:
         pos = sentiment.get("positive", 0)
         neu = sentiment.get("neutral", 0)
         neg = sentiment.get("negative", 0)
-        sentiment_bar = (
-            f"Positive {pos:.0%} / Neutral {neu:.0%} / Negative {neg:.0%}"
-        )
 
         lines = [
             f"# Audience Profile Report — {channel_title}",
@@ -76,7 +61,7 @@ class MarkdownReporter:
             _bullet_list(audience.get("engagement_triggers", [])),
             "## Sentiment Breakdown",
             "",
-            sentiment_bar,
+            f"Positive {pos:.0%} / Neutral {neu:.0%} / Negative {neg:.0%}",
             "",
             "## Key Insights",
             "",
@@ -92,20 +77,10 @@ class MarkdownReporter:
         _write(path, "\n".join(lines))
         return path
 
-    # ------------------------------------------------------------------
-    # brand_report.md
-    # ------------------------------------------------------------------
-
-    def write_brand_report(
-        self,
-        out_dir: str | Path,
-        brand: dict,
-        channel_title: str,
-    ) -> Path:
+    def write_brand_report(self, out_dir: str | Path, brand: dict, channel_title: str) -> Path:
         out_dir = Path(out_dir)
         path = out_dir / "brand_report.md"
 
-        # Core content themes table
         themes = brand.get("content_themes", [])
         if themes and isinstance(themes[0], dict):
             theme_rows = ["| Theme | Description | Frequency |", "|-------|-------------|-----------|"]
@@ -157,30 +132,13 @@ class MarkdownReporter:
         ]
 
         if brand.get("raw_analysis"):
-            lines += [
-                "",
-                "---",
-                "",
-                "## Raw Analysis (fallback)",
-                "",
-                "```",
-                brand["raw_analysis"],
-                "```",
-            ]
+            lines += ["", "---", "", "## Raw Analysis (fallback)", "", "```",
+                      brand["raw_analysis"], "```"]
 
         _write(path, "\n".join(lines))
         return path
 
-    # ------------------------------------------------------------------
-    # knowledge_index.md
-    # ------------------------------------------------------------------
-
-    def write_knowledge_index(
-        self,
-        out_dir: str | Path,
-        knowledge_agg: dict,
-        channel_title: str,
-    ) -> Path:
+    def write_knowledge_index(self, out_dir: str | Path, knowledge_agg: dict, channel_title: str) -> Path:
         out_dir = Path(out_dir)
         path = out_dir / "knowledge_index.md"
 
@@ -200,33 +158,19 @@ class MarkdownReporter:
             "",
         ]
 
-        # Learning path
         if index_summary.get("learning_path_suggestion"):
-            lines += [
-                "## Suggested Learning Path",
-                "",
-                index_summary["learning_path_suggestion"],
-                "",
-            ]
+            lines += ["## Suggested Learning Path", "", index_summary["learning_path_suggestion"], ""]
 
-        # Top topics
         top_topics = index_summary.get("top_topics", [])
         if top_topics:
-            lines += [
-                "## Top Topics",
-                "",
-                _bullet_list(top_topics),
-            ]
+            lines += ["## Top Topics", "", _bullet_list(top_topics)]
 
         lines += ["---", ""]
 
-        # Category order
         category_order = [
             "swing_technique", "course_strategy", "practice_method",
-            "mental", "club_selection", "course_intro",
-            "rules_etiquette", "other",
+            "mental", "club_selection", "course_intro", "rules_etiquette", "other",
         ]
-        # Add any extra categories not in predefined order
         for cat in by_category:
             if cat not in category_order:
                 category_order.append(cat)
@@ -244,20 +188,15 @@ class MarkdownReporter:
             ]
 
             for item in items:
-                topic = item.get("topic_en", item.get("topic", ""))
+                topic = item.get("topic_en", item.get("topic", "")).replace("|", "&#124;")
                 summary = item.get("summary", "")
-                # Truncate long summaries in table
                 if len(summary) > 60:
                     summary = summary[:57] + "..."
+                summary = summary.replace("|", "&#124;")
                 difficulty = item.get("difficulty_level", "")
                 video_title = item.get("video_title", "")
                 video_url = item.get("video_url", "")
                 source = f"[{video_title[:20]}]({video_url})" if video_url else video_title[:20]
-
-                # Escape pipes in table cells
-                topic = topic.replace("|", "&#124;")
-                summary = summary.replace("|", "&#124;")
-
                 lines.append(f"| {topic} | {summary} | {difficulty} | {source} |")
 
             lines.append("")

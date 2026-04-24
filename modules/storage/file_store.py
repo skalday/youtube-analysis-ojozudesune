@@ -50,7 +50,7 @@ class FileStore:
     def exists(self, path: str) -> bool:
         return os.path.exists(path)
 
-    # --- Convenience path builders ---
+    # --- Path builders ---
 
     def video_list_path(self, channel_id: str) -> str:
         return os.path.join(self.base_dir, "raw", "videos", channel_id, "video_list.json")
@@ -62,7 +62,6 @@ class FileStore:
         return os.path.join(self.base_dir, "raw", "comments", channel_id, f"{video_id}.json")
 
     def analysis_path(self, channel_id: str, analysis_type: str) -> str:
-        # analysis_type: "audience", "brand", "locations", "knowledge"
         return os.path.join(
             self.base_dir, "processed", analysis_type, channel_id, "result.json"
         )

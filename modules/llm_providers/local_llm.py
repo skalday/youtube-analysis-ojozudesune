@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from openai import OpenAI
 
-from analyzers.base_client import BaseLLMClient
+from modules.llm_providers.base import BaseLLMClient
 
 
 class LocalLLMClient(BaseLLMClient):

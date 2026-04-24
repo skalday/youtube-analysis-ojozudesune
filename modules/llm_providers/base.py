@@ -14,20 +14,15 @@ class BaseLLMClient(ABC):
         """Single LLM call. Returns raw text response."""
 
     def analyze_json(self, system_prompt: str, user_prompt: str) -> dict | list | None:
-        """
-        Call LLM and parse response as JSON.
-        Returns parsed object or None on parse failure.
-        """
+        """Call LLM and parse response as JSON. Returns parsed object or None on failure."""
         raw = self.analyze(system_prompt, user_prompt)
         text = raw.strip()
 
-        # Try direct parse first
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
 
-        # Extract from ```json ... ``` or ``` ... ``` block anywhere in the text
         import re
         m = re.search(r"```(?:json)?\s*\n([\s\S]*?)\n```", text)
         if m:
@@ -36,7 +31,6 @@ class BaseLLMClient(ABC):
             except json.JSONDecodeError:
                 pass
 
-        # Last resort: find first { ... } or [ ... ] block
         m = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", text)
         if m:
             try:
@@ -47,10 +41,7 @@ class BaseLLMClient(ABC):
         return None
 
     def chunk_texts(self, texts: list, max_chars: int = CHUNK_CHARS) -> list:
-        """
-        Split a list of texts into chunks that fit within max_chars.
-        Returns list of combined-text strings.
-        """
+        """Split a list of texts into chunks that fit within max_chars."""
         chunks = []
         current: list[str] = []
         current_len = 0

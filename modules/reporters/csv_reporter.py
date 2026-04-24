@@ -1,32 +1,15 @@
-"""
-CSVReporter — Export raw data as CSV (UTF-8-sig, Excel compatible).
-"""
 from __future__ import annotations
 
 from pathlib import Path
 
-from storage.file_store import FileStore
+from modules.storage.file_store import FileStore
 
 
 class CSVReporter:
     def __init__(self, store: FileStore):
         self.store = store
 
-    # ------------------------------------------------------------------
-    # comments.csv
-    # ------------------------------------------------------------------
-
-    def write_comments(
-        self,
-        out_dir: str | Path,
-        all_comments: dict,
-        videos: list,
-    ) -> Path:
-        """
-        Args:
-            all_comments: {video_id: [comment_dict]}
-            videos: [video_dict with video_id, title]
-        """
+    def write_comments(self, out_dir: str | Path, all_comments: dict, videos: list) -> Path:
         out_dir = Path(out_dir)
         path = out_dir / "comments.csv"
 
@@ -53,21 +36,7 @@ class CSVReporter:
         print(f"  [csv] written {path} ({len(records)} comments)")
         return path
 
-    # ------------------------------------------------------------------
-    # transcripts.csv
-    # ------------------------------------------------------------------
-
-    def write_transcripts(
-        self,
-        out_dir: str | Path,
-        transcripts: dict,
-        videos: list,
-    ) -> Path:
-        """
-        Args:
-            transcripts: {video_id: transcript_dict_or_None}
-            videos: [video_dict]
-        """
+    def write_transcripts(self, out_dir: str | Path, transcripts: dict, videos: list) -> Path:
         out_dir = Path(out_dir)
         path = out_dir / "transcripts.csv"
 
@@ -101,15 +70,7 @@ class CSVReporter:
         print(f"  [csv] written {path} ({len(records)} videos)")
         return path
 
-    # ------------------------------------------------------------------
-    # locations_database.csv / food_database.csv / equipment_database.csv
-    # ------------------------------------------------------------------
-
-    def write_locations(
-        self,
-        out_dir: str | Path,
-        location_agg: dict,
-    ) -> Path:
+    def write_locations(self, out_dir: str | Path, location_agg: dict) -> Path:
         out_dir = Path(out_dir)
         path = out_dir / "locations_database.csv"
         records = location_agg.get("all_locations", [])
@@ -117,11 +78,7 @@ class CSVReporter:
         print(f"  [csv] written {path} ({len(records)} locations)")
         return path
 
-    def write_food(
-        self,
-        out_dir: str | Path,
-        location_agg: dict,
-    ) -> Path:
+    def write_food(self, out_dir: str | Path, location_agg: dict) -> Path:
         out_dir = Path(out_dir)
         path = out_dir / "food_database.csv"
         records = location_agg.get("all_food", [])
@@ -129,11 +86,7 @@ class CSVReporter:
         print(f"  [csv] written {path} ({len(records)} food items)")
         return path
 
-    def write_equipment(
-        self,
-        out_dir: str | Path,
-        location_agg: dict,
-    ) -> Path:
+    def write_equipment(self, out_dir: str | Path, location_agg: dict) -> Path:
         out_dir = Path(out_dir)
         path = out_dir / "equipment_database.csv"
         records = location_agg.get("all_equipment", [])
@@ -141,15 +94,7 @@ class CSVReporter:
         print(f"  [csv] written {path} ({len(records)} equipment items)")
         return path
 
-    # ------------------------------------------------------------------
-    # knowledge_index.csv
-    # ------------------------------------------------------------------
-
-    def write_knowledge(
-        self,
-        out_dir: str | Path,
-        knowledge_agg: dict,
-    ) -> Path:
+    def write_knowledge(self, out_dir: str | Path, knowledge_agg: dict) -> Path:
         out_dir = Path(out_dir)
         path = out_dir / "knowledge_index.csv"
 
@@ -173,15 +118,7 @@ class CSVReporter:
         print(f"  [csv] written {path} ({len(records)} knowledge items)")
         return path
 
-    # ------------------------------------------------------------------
-    # Convenience: write all location-related CSVs at once
-    # ------------------------------------------------------------------
-
-    def write_all_location_csvs(
-        self,
-        out_dir: str | Path,
-        location_agg: dict,
-    ) -> list[Path]:
+    def write_all_location_csvs(self, out_dir: str | Path, location_agg: dict) -> list[Path]:
         return [
             self.write_locations(out_dir, location_agg),
             self.write_food(out_dir, location_agg),

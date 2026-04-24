@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from analyzers.claude_client import ClaudeClient
+from modules.llm_providers.base import BaseLLMClient
 
 SYSTEM_PROMPT = """You are a professional golf knowledge organiser responsible for accurately extracting knowledge points and tips from Japanese YouTube golf video transcripts.
 Write summaries in English, preserving original Japanese excerpts.
@@ -48,7 +48,6 @@ Category descriptions:
 - コース紹介 (course_intro): Features, challenges, and strategies of specific courses
 - その他 (other): Knowledge not fitting the above categories"""
 
-# Prompt for generating the cross-video knowledge index
 INDEX_SYNTHESIS_PROMPT = """Below are knowledge extraction results from {video_count} golf YouTube videos:
 
 {items_text}
@@ -72,13 +71,11 @@ Compile a cross-video knowledge index summary and output the following JSON:
 
 
 class KnowledgeExtractor:
-    def __init__(self, client: ClaudeClient):
+    def __init__(self, client: BaseLLMClient):
         self.client = client
 
     def extract_one(self, video: dict, transcript: dict) -> dict:
-        """
-        Extract knowledge items from a single video transcript.
-        """
+        """Extract knowledge items from a single video transcript."""
         video_id = video["video_id"]
         title = video.get("title", "")
         published_at = video.get("published_at", "")[:10]
@@ -95,13 +92,11 @@ class KnowledgeExtractor:
                 "skipped": True,
             }
 
-        text_for_prompt = transcript_text[:25_000]
-
         prompt = EXTRACTION_PROMPT_TEMPLATE.format(
             video_id=video_id,
             title=title,
             published_at=published_at,
-            transcript_text=text_for_prompt,
+            transcript_text=transcript_text[:25_000],
         )
 
         result = self.client.analyze_json(SYSTEM_PROMPT, prompt)
@@ -125,9 +120,7 @@ class KnowledgeExtractor:
         transcripts: dict,
         skip_existing: set | None = None,
     ) -> list:
-        """
-        Extract knowledge from multiple videos.
-        """
+        """Extract knowledge from multiple videos."""
         from tqdm import tqdm
 
         skip = skip_existing or set()
@@ -138,24 +131,12 @@ class KnowledgeExtractor:
             if video_id in skip:
                 continue
             transcript = transcripts.get(video_id)
-            result = self.extract_one(video, transcript)
-            results.append(result)
+            results.append(self.extract_one(video, transcript))
 
         return results
 
     def aggregate(self, all_results: list) -> dict:
-        """
-        Aggregate per-video results into a flat knowledge database.
-
-        Returns:
-            {
-                "per_video": [...],
-                "all_items": [...],    # flat list, each item has video reference
-                "by_category": {...},  # grouped by category_en
-                "index_summary": {...},
-                "stats": {...}
-            }
-        """
+        """Aggregate per-video results into a flat knowledge database."""
         all_items = []
         by_category: dict[str, list] = {}
 
@@ -174,11 +155,9 @@ class KnowledgeExtractor:
                     **item,
                 }
                 all_items.append(flat_item)
-
                 cat = item.get("category_en", item.get("category", "other"))
                 by_category.setdefault(cat, []).append(flat_item)
 
-        # Generate index summary via Claude if we have items
         index_summary = self._generate_index_summary(all_results, all_items)
 
         return {
@@ -189,35 +168,27 @@ class KnowledgeExtractor:
             "extraction_date": datetime.now(timezone.utc).isoformat(),
             "stats": {
                 "videos_processed": len(all_results),
-                "videos_with_knowledge": sum(
-                    1 for r in all_results if r.get("knowledge_items")
-                ),
+                "videos_with_knowledge": sum(1 for r in all_results if r.get("knowledge_items")),
                 "total_knowledge_items": len(all_items),
-                "category_counts": {
-                    cat: len(items) for cat, items in by_category.items()
-                },
+                "category_counts": {cat: len(items) for cat, items in by_category.items()},
             },
         }
 
     def _generate_index_summary(self, all_results: list, all_items: list) -> dict:
-        """Generate a summary of the knowledge index using Claude."""
         if not all_items:
             return {}
 
-        # Build compact items text for synthesis
         lines = []
-        for item in all_items[:200]:  # Cap to avoid token overflow
+        for item in all_items[:200]:
             lines.append(
                 f"[{item.get('category_en', item.get('category', 'other'))}] "
                 f"{item.get('topic_en', item.get('topic', ''))} "
                 f"-- {item.get('summary', '')[:80]}"
             )
 
-        items_text = "\n".join(lines)
         prompt = INDEX_SYNTHESIS_PROMPT.format(
             video_count=len(all_results),
-            items_text=items_text,
+            items_text="\n".join(lines),
         )
 
-        result = self.client.analyze_json(SYSTEM_PROMPT, prompt)
-        return result or {}
+        return self.client.analyze_json(SYSTEM_PROMPT, prompt) or {}

@@ -16,12 +16,6 @@ def _parse_duration_seconds(iso_duration: str) -> int:
     return h * 3600 + m * 60 + s
 
 
-def _is_retryable(exc):
-    if isinstance(exc, HttpError):
-        return exc.resp.status in (429, 500, 503)
-    return False
-
-
 class YouTubeAPIClient:
     def __init__(self, api_key: str):
         self.youtube = build("youtube", "v3", developerKey=api_key)
@@ -30,25 +24,6 @@ class YouTubeAPIClient:
         """
         Resolve channel @handle, custom URL, or direct channel ID.
         Returns (channel_id, channel_title).
-        """
-        channel_id = self.get_channel_id(channel_input)
-        resp = self.youtube.channels().list(
-            part="snippet",
-            id=channel_id,
-        ).execute()
-        items = resp.get("items", [])
-        title = items[0]["snippet"]["title"] if items else channel_id
-        return channel_id, title
-
-    def get_channel_id(self, channel_input: str) -> str:
-        """Resolve channel @handle or ID. Returns channel ID string."""
-        channel_id, _ = self.get_channel_id_by_handle(channel_input)
-        return channel_id
-
-    def get_channel_id_by_handle(self, channel_input: str) -> tuple:
-        """
-        Resolve channel @handle, custom URL, or direct channel ID.
-        Returns (channel_id, channel_title) tuple.
         """
         # Already a channel ID (starts with UC)
         if channel_input.startswith("UC"):
@@ -129,9 +104,8 @@ class YouTubeAPIClient:
     def list_channel_videos(self, channel_id: str, max_results: int = 20) -> list:
         """
         Return list of video metadata dicts, newest first.
-        Uses uploads playlist (1 unit/page) instead of search.list (100 units/page).
         Each dict: {video_id, title, published_at, description,
-                    view_count, like_count, comment_count, duration, thumbnail_url}
+                    view_count, like_count, comment_count, duration, thumbnail_url, ...}
         """
         playlist_id = self._get_uploads_playlist_id(channel_id)
 
@@ -153,7 +127,6 @@ class YouTubeAPIClient:
         if not video_ids:
             return []
 
-        # Batch fetch details (max 50 per request)
         videos = []
         for i in range(0, len(video_ids), 50):
             batch = video_ids[i:i + 50]
@@ -187,6 +160,5 @@ class YouTubeAPIClient:
                     "channel_title": snippet.get("channelTitle", ""),
                 })
 
-        # Sort by published_at descending
         videos.sort(key=lambda v: v["published_at"], reverse=True)
         return videos

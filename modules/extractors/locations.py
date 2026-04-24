@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from analyzers.claude_client import ClaudeClient
+from modules.llm_providers.base import BaseLLMClient
 
 SYSTEM_PROMPT = """You are a professional data extractor responsible for accurately extracting location, food, and equipment information from Japanese YouTube golf video transcripts.
 Output must be valid JSON with no extra text.
@@ -51,23 +51,14 @@ Extract the following information from the transcript and output JSON:
 
 
 class LocationExtractor:
-    def __init__(self, client: ClaudeClient):
+    def __init__(self, client: BaseLLMClient):
         self.client = client
 
     def extract_one(self, video: dict, transcript: dict) -> dict:
-        """
-        Extract locations, food, equipment from a single video transcript.
-
-        Args:
-            video: video metadata dict (video_id, title, published_at, ...)
-            transcript: transcript dict with full_text
-
-        Returns:
-            Extraction result dict
-        """
+        """Extract locations, food, equipment from a single video transcript."""
         video_id = video["video_id"]
         title = video.get("title", "")
-        published_at = video.get("published_at", "")[:10]  # YYYY-MM-DD
+        published_at = video.get("published_at", "")[:10]
         transcript_text = transcript.get("full_text", "") if transcript else ""
 
         if not transcript_text:
@@ -82,14 +73,11 @@ class LocationExtractor:
                 "skipped": True,
             }
 
-        # Truncate very long transcripts to avoid token limits
-        text_for_prompt = transcript_text[:25_000]
-
         prompt = EXTRACTION_PROMPT_TEMPLATE.format(
             video_id=video_id,
             title=title,
             published_at=published_at,
-            transcript_text=text_for_prompt,
+            transcript_text=transcript_text[:25_000],
         )
 
         result = self.client.analyze_json(SYSTEM_PROMPT, prompt)
@@ -114,17 +102,7 @@ class LocationExtractor:
         transcripts: dict,
         skip_existing: set | None = None,
     ) -> list:
-        """
-        Extract from multiple videos.
-
-        Args:
-            videos: list of video metadata dicts
-            transcripts: {video_id: transcript_dict_or_None}
-            skip_existing: set of video_ids already extracted
-
-        Returns:
-            List of extraction result dicts
-        """
+        """Extract from multiple videos."""
         from tqdm import tqdm
 
         skip = skip_existing or set()
@@ -135,24 +113,12 @@ class LocationExtractor:
             if video_id in skip:
                 continue
             transcript = transcripts.get(video_id)
-            result = self.extract_one(video, transcript)
-            results.append(result)
+            results.append(self.extract_one(video, transcript))
 
         return results
 
     def aggregate(self, all_results: list) -> dict:
-        """
-        Aggregate per-video results into flat lists for database export.
-
-        Returns:
-            {
-                "per_video": [...],          # original per-video results
-                "all_locations": [...],      # flat list with video reference
-                "all_food": [...],
-                "all_equipment": [...],
-                "stats": {...}
-            }
-        """
+        """Aggregate per-video results into flat lists for database export."""
         all_locations = []
         all_food = []
         all_equipment = []
@@ -164,31 +130,14 @@ class LocationExtractor:
             published_at = result.get("published_at", "")
 
             for loc in result.get("locations", []):
-                all_locations.append({
-                    "video_id": video_id,
-                    "video_title": video_title,
-                    "video_url": video_url,
-                    "published_at": published_at,
-                    **loc,
-                })
-
+                all_locations.append({"video_id": video_id, "video_title": video_title,
+                                      "video_url": video_url, "published_at": published_at, **loc})
             for food in result.get("food", []):
-                all_food.append({
-                    "video_id": video_id,
-                    "video_title": video_title,
-                    "video_url": video_url,
-                    "published_at": published_at,
-                    **food,
-                })
-
+                all_food.append({"video_id": video_id, "video_title": video_title,
+                                 "video_url": video_url, "published_at": published_at, **food})
             for equip in result.get("equipment", []):
-                all_equipment.append({
-                    "video_id": video_id,
-                    "video_title": video_title,
-                    "video_url": video_url,
-                    "published_at": published_at,
-                    **equip,
-                })
+                all_equipment.append({"video_id": video_id, "video_title": video_title,
+                                      "video_url": video_url, "published_at": published_at, **equip})
 
         return {
             "per_video": all_results,

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube 頻道分析工具</title>
+</head>
+<body>
+    <h1>Youtube Analysis</h1>
+
+    <div id="settings">
+        <h2>新增分析</h2>
+        <form id="analysisForm">
+            <label for="channel">頻道 handle 或 ID:</label>
+            <input type="text" id="channel" name="channel" placeholder="@SomeChannel" required>
+
+            <label for="localModel">Ollama 模型:</label>
+            <select id="localModel" name="localModel">
+                <option value="">載入中...</option>
+            </select>
+
+            <label for="maxVideos">最多分析影片數:</label>
+            <input type="number" id="maxVideos" name="maxVideos" value="20" min="5" max="100">
+
+            <fieldset>
+                <legend>分析選項</legend>
+                <label>
+                    <input type="checkbox" id="skipAudience" name="skipAudience">
+                    跳過觀眾分析
+                </label>
+                <label>
+                    <input type="checkbox" id="skipBrand" name="skipBrand">
+                    跳過品牌分析
+                </label>
+                <label>
+                    <input type="checkbox" id="skipExtraction" name="skipExtraction">
+                    跳過地點/知識提取
+                </label>
+            </fieldset>
+
+            <button type="submit">開始分析</button>
+        </form>
+
+        <hr>
+
+        <h2>載入已分析的頻道</h2>
+        <div id="cachedChannels">
+            <button type="button" onclick="loadCachedChannelsList()">顯示已快取的頻道</button>
+            <div id="channelList" style="display:none; margin-top: 10px;">
+                <label for="cachedChannelSelect">選擇頻道:</label>
+                <select id="cachedChannelSelect">
+                    <option value="">-- 請選擇 --</option>
+                </select>
+                <button type="button" onclick="loadFromCache()">載入</button>
+            </div>
+        </div>
+
+        <div id="status" style="display:none;">
+            <h3>執行進度</h3>
+            <pre id="statusLog"></pre>
+        </div>
+    </div>
+
+    <div id="results" style="display:none;">
+        <h2>分析結果</h2>
+
+        <div id="channelInfo">
+            <h3 id="channelTitle"></h3>
+            <p id="lastUpdated"></p>
+        </div>
+
+        <div id="stats">
+            <h3>統計摘要</h3>
+            <div id="statsContent"></div>
+        </div>
+
+        <div id="audience">
+            <h3>觀眾分析</h3>
+            <div id="audienceContent"></div>
+        </div>
+
+        <div id="brand">
+            <h3>品牌定位</h3>
+            <div id="brandContent"></div>
+        </div>
+
+        <div id="knowledge">
+            <h3>知識索引</h3>
+            <input type="text" id="knowledgeSearch" placeholder="搜尋知識點...">
+            <table id="knowledgeTable">
+                <thead>
+                    <tr>
+                        <th>知識點</th>
+                        <th>影片</th>
+                        <th>時間</th>
+                        <th>連結</th>
+                    </tr>
+                </thead>
+                <tbody id="knowledgeBody"></tbody>
+            </table>
+        </div>
+
+        <button onclick="backToSettings()">返回分析設定</button>
+    </div>
+
+    <script>
+        const form = document.getElementById('analysisForm');
+        const status = document.getElementById('status');
+        const statusLog = document.getElementById('statusLog');
+        const results = document.getElementById('results');
+        const settings = document.getElementById('settings');
+        const localModelSelect = document.getElementById('localModel');
+
+        // 頁面載入時自動抓取 Ollama 模型列表
+        async function loadOllamaModels() {
+            try {
+                const response = await fetch('/api/ollama/models');
+                const data = await response.json();
+
+                localModelSelect.innerHTML = '';
+
+                if (data.models && data.models.length > 0) {
+                    data.models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model;
+                        option.textContent = model;
+                        localModelSelect.appendChild(option);
+                    });
+                } else {
+                    localModelSelect.innerHTML = '<option value="">無可用模型 (請先安裝 Ollama 模型)</option>';
+                }
+            } catch (error) {
+                localModelSelect.innerHTML = '<option value="">載入失敗</option>';
+                console.error('載入模型列表失敗:', error);
+            }
+        }
+
+        loadOllamaModels();
+
+        async function loadCachedChannelsList() {
+            try {
+                const response = await fetch('/api/list_cached_channels');
+                const data = await response.json();
+
+                const select = document.getElementById('cachedChannelSelect');
+                const channelList = document.getElementById('channelList');
+
+                select.innerHTML = '<option value="">-- 請選擇 --</option>';
+
+                if (data.channels && data.channels.length > 0) {
+                    data.channels.forEach(channel => {
+                        const option = document.createElement('option');
+                        option.value = channel.channel_id;
+                        option.textContent = `${channel.channel_title} (${channel.total_videos} 支影片)`;
+                        select.appendChild(option);
+                    });
+                    channelList.style.display = 'block';
+                } else {
+                    alert('沒有找到已快取的頻道資料');
+                }
+            } catch (error) {
+                alert('載入快取列表失敗: ' + error.message);
+            }
+        }
+
+        async function loadFromCache() {
+            const channelId = document.getElementById('cachedChannelSelect').value;
+
+            if (!channelId) {
+                alert('請先選擇一個頻道');
+                return;
+            }
+
+            try {
+                status.style.display = 'block';
+                statusLog.textContent = '正在載入快取資料...';
+
+                const response = await fetch('/api/load_cache', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ channel_id: channelId })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || '載入失敗');
+                }
+
+                const data = await response.json();
+
+                displayResults(data);
+                status.style.display = 'none';
+                settings.style.display = 'none';
+                results.style.display = 'block';
+
+            } catch (error) {
+                statusLog.textContent = '錯誤: ' + error.message;
+            }
+        }
+
+        function backToSettings() {
+            settings.style.display = 'block';
+            results.style.display = 'none';
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = {
+                channel: document.getElementById('channel').value,
+                localModel: localModelSelect.value,
+                maxVideos: parseInt(document.getElementById('maxVideos').value),
+                skipAudience: document.getElementById('skipAudience').checked,
+                skipBrand: document.getElementById('skipBrand').checked,
+                skipExtraction: document.getElementById('skipExtraction').checked
+            };
+
+            status.style.display = 'block';
+            results.style.display = 'none';
+            statusLog.textContent = '';
+
+            try {
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || '分析啟動失敗');
+                }
+
+                const { task_id } = await response.json();
+
+                const eventSource = new EventSource(`/api/stream/${task_id}`);
+
+                eventSource.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    const msg = data.message;
+
+                    if (msg.startsWith('DONE:')) {
+                        const result = JSON.parse(msg.substring(5));
+                        displayResults(result);
+                        status.style.display = 'none';
+                        settings.style.display = 'none';
+                        results.style.display = 'block';
+                        eventSource.close();
+                    } else if (msg.startsWith('ERROR:')) {
+                        statusLog.textContent += '\n錯誤: ' + msg.substring(6);
+                        eventSource.close();
+                    } else {
+                        statusLog.textContent += msg + '\n';
+                        statusLog.scrollTop = statusLog.scrollHeight;
+                    }
+                };
+
+                eventSource.onerror = () => {
+                    statusLog.textContent += '\n連線中斷';
+                    eventSource.close();
+                };
+
+            } catch (error) {
+                statusLog.textContent = '錯誤: ' + error.message;
+            }
+        });
+
+        function displayResults(data) {
+            const channelTitle = data.summary.channel_title || 'Unknown Channel';
+            const lastUpdated = data.summary.last_updated || 'Unknown';
+            document.getElementById('channelTitle').textContent = channelTitle;
+            document.getElementById('lastUpdated').textContent = `最後更新: ${lastUpdated}`;
+
+            const stats = data.summary.stats || {};
+            document.getElementById('statsContent').innerHTML = `
+                <p>總影片數: ${stats.total_videos || 0}</p>
+                <p>分析留言數: ${stats.total_comments_analyzed || 0}</p>
+                <p>知識點數: ${stats.total_knowledge_items || 0}</p>
+                <p>地點數: ${stats.total_locations || 0}</p>
+            `;
+
+            const audience = data.summary.audience_analysis || {};
+            document.getElementById('audienceContent').innerHTML = `
+                <p>${audience.summary || '暫無資料'}</p>
+            `;
+
+            const brand = data.summary.brand_analysis || {};
+            document.getElementById('brandContent').innerHTML = `
+                <p>${brand.summary || '暫無資料'}</p>
+            `;
+
+            const knowledge = data.knowledge || [];
+            const tbody = document.getElementById('knowledgeBody');
+
+            if (knowledge.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4">暫無知識索引資料</td></tr>';
+            } else {
+                tbody.innerHTML = knowledge.map(item => `
+                    <tr>
+                        <td>${item.content || item.knowledge_point || ''}</td>
+                        <td>${item.video_title || ''}</td>
+                        <td>${item.timestamp || 'N/A'}</td>
+                        <td><a href="${item.video_url || item.url || '#'}" target="_blank">觀看</a></td>
+                    </tr>
+                `).join('');
+            }
+
+            const searchInput = document.getElementById('knowledgeSearch');
+            searchInput.value = '';
+
+            const newSearchInput = searchInput.cloneNode(true);
+            searchInput.parentNode.replaceChild(newSearchInput, searchInput);
+
+            newSearchInput.addEventListener('input', (e) => {
+                const searchTerm = e.target.value.toLowerCase();
+                const rows = tbody.getElementsByTagName('tr');
+
+                for (let row of rows) {
+                    const text = row.textContent.toLowerCase();
+                    row.style.display = text.includes(searchTerm) ? '' : 'none';
+                }
+            });
+        }
+    </script>
+</body>
+</html>

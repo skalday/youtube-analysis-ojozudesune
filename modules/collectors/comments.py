@@ -4,12 +4,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from tqdm import tqdm
 
 
-def _is_retryable(exc):
-    if isinstance(exc, HttpError):
-        return exc.resp.status in (429, 500, 503)
-    return False
-
-
 class CommentScraper:
     def __init__(self, api_client=None, store=None, max_per_video: int = 100, api_key: str | None = None):
         if api_client is not None:
@@ -37,10 +31,7 @@ class CommentScraper:
         ).execute()
 
     def fetch_comments(self, video_id: str) -> list:
-        """
-        Fetch top-level comments for a video.
-        Returns list of comment dicts.
-        """
+        """Fetch top-level comments for a video. Returns list of comment dicts."""
         comments = []
         page_token = None
 
@@ -66,13 +57,11 @@ class CommentScraper:
                     break
 
         except HttpError as e:
-            # Comments disabled or other API error — return what we have
             if e.resp.status == 403:
                 return comments
             raise
 
         comments = comments[: self.max_per_video]
-        # Sort by engagement: like_count desc, then reply_count desc
         comments.sort(key=lambda c: (c["like_count"], c["reply_count"]), reverse=True)
         return comments
 

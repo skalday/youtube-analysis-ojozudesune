@@ -2,7 +2,7 @@ import os
 import time
 from datetime import datetime, timezone
 
-from storage.file_store import FileStore
+from modules.storage.file_store import FileStore
 
 
 class CacheManager:
@@ -18,10 +18,7 @@ class CacheManager:
         return age < self.ttl_seconds
 
     def get_or_fetch(self, path: str, fetch_fn, force_refresh: bool = False):
-        """
-        Load from cache if fresh, otherwise call fetch_fn(), save, and return.
-        fetch_fn must return JSON-serialisable data.
-        """
+        """Load from cache if fresh, otherwise call fetch_fn(), save, and return."""
         if not force_refresh and self.is_fresh(path):
             return self.store.load_json(path)
         data = fetch_fn()
@@ -31,8 +28,7 @@ class CacheManager:
 
     def get_cached_video_ids(self, channel_id: str) -> set:
         """Return set of video IDs already stored locally for a channel."""
-        video_list_path = self.store.video_list_path(channel_id)
-        cached = self.store.load_json(video_list_path)
+        cached = self.store.load_json(self.store.video_list_path(channel_id))
         if not cached:
             return set()
         return {v["video_id"] for v in cached}
@@ -44,38 +40,14 @@ class CacheManager:
 
     def get_cached_transcript_ids(self, channel_id: str, video_ids: list) -> set:
         """Return set of video IDs that already have a cached transcript."""
-        result = set()
-        for vid in video_ids:
-            path = self.store.transcript_path(channel_id, vid)
-            if self.store.exists(path):
-                result.add(vid)
-        return result
+        return {
+            vid for vid in video_ids
+            if self.store.exists(self.store.transcript_path(channel_id, vid))
+        }
 
     def get_cached_comment_ids(self, channel_id: str, video_ids: list) -> set:
         """Return set of video IDs that already have cached comments."""
-        result = set()
-        for vid in video_ids:
-            path = self.store.comments_path(channel_id, vid)
-            if self.store.exists(path):
-                result.add(vid)
-        return result
-
-    def save_analysis_snapshot(
-        self, channel_id: str, analysis_type: str, result: dict, summary_path: str
-    ) -> None:
-        """
-        Append analysis result to summary.json analysis_history array.
-        summary_path: full path to the channel's summary.json
-        """
-        summary = self.store.load_json(summary_path) or {
-            "channel_id": channel_id,
-            "analysis_history": [],
+        return {
+            vid for vid in video_ids
+            if self.store.exists(self.store.comments_path(channel_id, vid))
         }
-
-        snapshot = {
-            "analysis_date": datetime.now(timezone.utc).isoformat(),
-            "analysis_type": analysis_type,
-            **result,
-        }
-        summary["analysis_history"].append(snapshot)
-        self.store.save_json(summary_path, summary)
