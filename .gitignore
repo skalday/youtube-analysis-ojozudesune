@@ -210,3 +210,6 @@ __marimo__/
 reports/
 data/
 cache/
+
+# Project docs for AI assistants
+CLAUDE.md
