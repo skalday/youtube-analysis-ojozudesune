@@ -109,16 +109,11 @@ class ChannelAnalyzer:
         history: list = existing.get("analysis_history", [])
         history.append({"timestamp": now, "stats": stats})
 
-        def _strip_internal(d: dict) -> dict:
-            return {k: v for k, v in d.items() if not k.startswith("_")}
-
         summary = {
             "channel_id": channel_id,
             "channel_title": channel_title,
             "last_updated": now,
             "stats": stats,
-            "audience_analysis": _strip_internal(audience),
-            "brand_analysis": _strip_internal(brand),
             "analysis_history": history,
         }
 

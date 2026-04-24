@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YouTube 頻道分析工具</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <h1>Youtube Analysis</h1>
@@ -244,7 +245,23 @@
             }
         });
 
+        async function loadMarkdownReport(channelId, filename, elementId) {
+            const el = document.getElementById(elementId);
+            el.textContent = '載入中...';
+            try {
+                const res = await fetch(`/api/reports/${channelId}/${filename}`);
+                if (!res.ok) {
+                    el.textContent = '暫無報告';
+                    return;
+                }
+                el.innerHTML = marked.parse(await res.text());
+            } catch {
+                el.textContent = '載入失敗';
+            }
+        }
+
         function displayResults(data) {
+            const channelId = data.summary.channel_id;
             const channelTitle = data.summary.channel_title || 'Unknown Channel';
             const lastUpdated = data.summary.last_updated || 'Unknown';
             document.getElementById('channelTitle').textContent = channelTitle;
@@ -256,16 +273,8 @@
                 <p>分析留言數: ${stats.total_comments_analyzed || 0}</p>
             `;
 
-            const audience = data.summary.audience_analysis || {};
-            document.getElementById('audienceContent').innerHTML = `
-                <p>${audience.summary || '暫無資料'}</p>
-            `;
-
-            const brand = data.summary.brand_analysis || {};
-            document.getElementById('brandContent').innerHTML = `
-                <p>${brand.summary || '暫無資料'}</p>
-            `;
-
+            loadMarkdownReport(channelId, 'audience_report.md', 'audienceContent');
+            loadMarkdownReport(channelId, 'brand_report.md', 'brandContent');
         }
     </script>
 </body>

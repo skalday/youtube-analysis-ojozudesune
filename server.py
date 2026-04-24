@@ -164,6 +164,16 @@ def load_cache():
         import traceback
         return jsonify({'error': str(e), 'detail': traceback.format_exc()}), 500
 
+@app.route('/api/reports/<channel_id>/<filename>', methods=['GET'])
+def get_report(channel_id, filename):
+    if not filename.endswith('.md'):
+        return jsonify({'error': '只支援 .md 檔案'}), 400
+    settings = load_settings()
+    path = Path(settings.reports_dir) / channel_id / filename
+    if not path.exists():
+        return jsonify({'error': '找不到報告檔案'}), 404
+    return path.read_text(encoding='utf-8'), 200, {'Content-Type': 'text/plain; charset=utf-8'}
+
 @app.route('/api/ollama/models', methods=['GET'])
 def get_ollama_models():
     try:
