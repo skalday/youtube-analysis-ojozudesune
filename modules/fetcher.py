@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from modules.collectors.youtube_api import YouTubeAPIClient
@@ -38,11 +39,12 @@ class YouTubeFetcher:
             max_per_video=settings.max_comments_per_video,
         )
 
-    def fetch(self, channel: str) -> tuple[str, str, list, dict, dict]:
+    def fetch(self, channel: str) -> tuple[str, str, list, dict, dict, str]:
         """
         Resolve channel, fetch videos/transcripts/comments, and cache to disk.
-        Returns (channel_id, channel_title, videos, transcripts, comments).
+        Returns (channel_id, channel_title, videos, transcripts, comments, fetch_time).
         """
+        fetch_time = datetime.now(timezone.utc).isoformat()
         print(f"\n>>> Resolving channel: {channel}")
         try:
             channel_id, channel_title = self.yt.get_channel_id_by_handle(channel)
@@ -102,7 +104,43 @@ class YouTubeFetcher:
         except Exception as exc:
             print(f"[WARNING] Comment fetch failed: {exc}", file=sys.stderr)
 
-        return channel_id, channel_title, videos, transcripts, all_comments
+        return channel_id, channel_title, videos, transcripts, all_comments, fetch_time
+
+    def fetch_incremental(self, channel_id: str, channel_title: str, last_fetched: str) -> tuple[str, str, list, dict, dict, str]:
+        """
+        Fetch only videos published after last_fetched, merge with cached data.
+        Returns (channel_id, channel_title, all_videos, all_transcripts, all_comments, fetch_time).
+        """
+        fetch_time = datetime.now(timezone.utc).isoformat()
+
+        print(f"\n>>> Fetching videos published after {last_fetched[:10]}...")
+        new_videos = self.yt.list_channel_videos(channel_id=channel_id, published_after=last_fetched)
+        print(f"    {len(new_videos)} new video(s) found")
+
+        if new_videos:
+            vpath = self.store.video_list_path(channel_id)
+            existing = self.store.load_json(vpath) or []
+            existing_ids = {v["video_id"] for v in existing}
+            merged = existing + [v for v in new_videos if v["video_id"] not in existing_ids]
+            merged.sort(key=lambda v: v["published_at"], reverse=True)
+            self.store.save_json(vpath, merged)
+
+            new_ids = [v["video_id"] for v in new_videos]
+
+            print(f"\n>>> Fetching transcripts for {len(new_ids)} new video(s)...")
+            self.tf.fetch_batch(video_ids=new_ids, new_only_ids=new_ids, channel_id=channel_id)
+
+            new_regular = [v["video_id"] for v in new_videos if not v.get("is_short")]
+            if new_regular:
+                print(f"\n>>> Fetching comments for {len(new_regular)} new regular video(s)...")
+                self.cs.fetch_batch(video_ids=new_regular, fetch_ids=new_regular, channel_id=channel_id)
+
+        all_videos, all_transcripts, all_comments = self.load_cached(channel_id)
+        transcript_set = {vid for vid, t in all_transcripts.items() if t}
+        for v in all_videos:
+            v["has_transcript"] = v["video_id"] in transcript_set
+
+        return channel_id, channel_title, all_videos, all_transcripts, all_comments, fetch_time
 
     def load_cached(self, channel_id: str) -> tuple[list, dict, dict]:
         """Load videos, transcripts, and comments from local disk cache."""

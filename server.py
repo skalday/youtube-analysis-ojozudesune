@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, send_from_directory, Response
 from pathlib import Path
 import os
 import json
+import shutil
 from dotenv import load_dotenv
 import queue
 import threading
@@ -46,7 +47,7 @@ def analyze():
 
                 msg_queue.put('正在抓取頻道資料...')
                 fetcher = YouTubeFetcher(settings)
-                channel_id, channel_title, videos, transcripts, comments = fetcher.fetch(channel)
+                channel_id, channel_title, videos, transcripts, comments, fetch_time = fetcher.fetch(channel)
                 msg_queue.put(f'已抓取 {len(videos)} 支影片')
 
                 llm = LocalLLMClient(model=local_model) if local_model else LocalLLMClient()
@@ -65,6 +66,7 @@ def analyze():
                     skip_audience=skip_audience,
                     skip_brand=skip_brand,
                     max_videos=max_videos,
+                    last_fetched=fetch_time,
                 )
 
                 msg_queue.put('讀取分析結果...')
@@ -126,6 +128,7 @@ def list_cached_channels():
                             'channel_id': channel_dir.name,
                             'channel_title': summary.get('channel_title', channel_dir.name),
                             'last_updated': summary.get('last_updated', 'Unknown'),
+                            'last_fetched': summary.get('last_fetched', 'Unknown'),
                             'total_videos': summary.get('stats', {}).get('total_videos', 0)
                         })
                     except:
@@ -163,6 +166,146 @@ def load_cache():
     except Exception as e:
         import traceback
         return jsonify({'error': str(e), 'detail': traceback.format_exc()}), 500
+
+def _make_task(fn):
+    """Run fn in background, return task_id for SSE streaming."""
+    task_id = str(hash(os.urandom(8)))
+    msg_queue = queue.Queue()
+    message_queues[task_id] = msg_queue
+    threading.Thread(target=fn, args=(msg_queue,)).start()
+    return jsonify({'task_id': task_id})
+
+def _llm_from_request(data):
+    local_model = data.get('localModel')
+    return LocalLLMClient(model=local_model) if local_model else LocalLLMClient()
+
+@app.route('/api/channels/<channel_id>', methods=['DELETE'])
+def delete_channel(channel_id):
+    try:
+        settings = load_settings()
+        reports_dir = Path(settings.reports_dir) / channel_id
+        data_dir = Path(settings.data_dir)
+
+        if reports_dir.exists():
+            shutil.rmtree(reports_dir)
+        for sub in ('videos', 'transcripts', 'comments'):
+            p = data_dir / 'raw' / sub / channel_id
+            if p.exists():
+                shutil.rmtree(p)
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/channels/<channel_id>/fetch_and_analyze', methods=['POST'])
+def fetch_and_analyze(channel_id):
+    data = request.json or {}
+    llm = _llm_from_request(data)
+
+    def run(msg_queue):
+        try:
+            settings = load_settings()
+            out_dir = Path(settings.reports_dir) / channel_id
+            summary_path = out_dir / 'summary.json'
+            if not summary_path.exists():
+                msg_queue.put('ERROR:找不到 summary.json，請先執行完整分析')
+                return
+
+            summary = json.loads(summary_path.read_text(encoding='utf-8'))
+            channel_title = summary.get('channel_title', channel_id)
+            last_fetched = summary.get('last_fetched', summary.get('last_updated'))
+
+            msg_queue.put(f'補抓 {last_fetched[:10]} 之後的新影片...')
+            fetcher = YouTubeFetcher(settings)
+            channel_id_, channel_title_, videos, transcripts, comments, fetch_time = \
+                fetcher.fetch_incremental(channel_id, channel_title, last_fetched)
+            msg_queue.put(f'共 {len(videos)} 支影片，開始分析...')
+
+            analyzer = ChannelAnalyzer(llm=llm, data_dir=settings.data_dir, out_dir=out_dir)
+            analyzer.analyze(
+                channel_id=channel_id, channel_title=channel_title,
+                videos=videos, transcripts=transcripts, all_comments=comments,
+                last_fetched=fetch_time,
+            )
+
+            summary = json.loads(summary_path.read_text(encoding='utf-8'))
+            msg_queue.put('DONE:' + json.dumps({'success': True, 'summary': summary}))
+        except Exception as e:
+            import traceback
+            msg_queue.put('ERROR:' + str(e) + '\n' + traceback.format_exc())
+
+    return _make_task(run)
+
+@app.route('/api/channels/<channel_id>/analyze', methods=['POST'])
+def analyze_cached(channel_id):
+    data = request.json or {}
+    llm = _llm_from_request(data)
+
+    def run(msg_queue):
+        try:
+            settings = load_settings()
+            out_dir = Path(settings.reports_dir) / channel_id
+            summary_path = out_dir / 'summary.json'
+            if not summary_path.exists():
+                msg_queue.put('ERROR:找不到 summary.json，請先執行完整分析')
+                return
+
+            summary = json.loads(summary_path.read_text(encoding='utf-8'))
+            channel_title = summary.get('channel_title', channel_id)
+            last_fetched = summary.get('last_fetched')
+
+            msg_queue.put('載入現有資料...')
+            fetcher = YouTubeFetcher(settings)
+            videos, transcripts, comments = fetcher.load_cached(channel_id)
+            msg_queue.put(f'共 {len(videos)} 支影片，開始分析...')
+
+            analyzer = ChannelAnalyzer(llm=llm, data_dir=settings.data_dir, out_dir=out_dir)
+            analyzer.analyze(
+                channel_id=channel_id, channel_title=channel_title,
+                videos=videos, transcripts=transcripts, all_comments=comments,
+                last_fetched=last_fetched,
+            )
+
+            summary = json.loads(summary_path.read_text(encoding='utf-8'))
+            msg_queue.put('DONE:' + json.dumps({'success': True, 'summary': summary}))
+        except Exception as e:
+            import traceback
+            msg_queue.put('ERROR:' + str(e) + '\n' + traceback.format_exc())
+
+    return _make_task(run)
+
+@app.route('/api/channels/<channel_id>/fetch', methods=['POST'])
+def fetch_only(channel_id):
+    def run(msg_queue):
+        try:
+            settings = load_settings()
+            out_dir = Path(settings.reports_dir) / channel_id
+            summary_path = out_dir / 'summary.json'
+            if not summary_path.exists():
+                msg_queue.put('ERROR:找不到 summary.json，請先執行完整分析')
+                return
+
+            summary = json.loads(summary_path.read_text(encoding='utf-8'))
+            channel_title = summary.get('channel_title', channel_id)
+            last_fetched = summary.get('last_fetched', summary.get('last_updated'))
+
+            msg_queue.put(f'補抓 {last_fetched[:10]} 之後的新影片...')
+            fetcher = YouTubeFetcher(settings)
+            _, _, videos, _, _, fetch_time = \
+                fetcher.fetch_incremental(channel_id, channel_title, last_fetched)
+            msg_queue.put(f'完成，共 {len(videos)} 支影片')
+
+            summary['last_fetched'] = fetch_time
+            summary['stats'] = summary.get('stats', {})
+            summary['stats']['total_videos'] = len(videos)
+            summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
+
+            msg_queue.put('DONE:' + json.dumps({'success': True, 'summary': summary}))
+        except Exception as e:
+            import traceback
+            msg_queue.put('ERROR:' + str(e) + '\n' + traceback.format_exc())
+
+    return _make_task(run)
 
 @app.route('/api/reports/<channel_id>/<filename>', methods=['GET'])
 def get_report(channel_id, filename):

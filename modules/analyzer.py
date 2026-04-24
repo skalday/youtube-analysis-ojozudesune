@@ -45,6 +45,7 @@ class ChannelAnalyzer:
         skip_audience: bool = False,
         skip_brand: bool = False,
         max_videos: int | None = None,
+        last_fetched: str | None = None,
     ) -> list[Path]:
         """Run LLM analysis and write all reports. Returns list of written files."""
         if max_videos:
@@ -81,7 +82,7 @@ class ChannelAnalyzer:
 
         return self._write_reports(
             channel_id, channel_title, videos, all_comments, transcripts,
-            audience_result, brand_result,
+            audience_result, brand_result, last_fetched=last_fetched,
         )
 
     def _store(self) -> FileStore:
@@ -94,6 +95,7 @@ class ChannelAnalyzer:
         videos: list,
         audience: dict,
         brand: dict,
+        last_fetched: str | None = None,
     ) -> Path:
         """Write summary.json used by the web UI to display results."""
         path = self.out_dir / "summary.json"
@@ -109,10 +111,12 @@ class ChannelAnalyzer:
         history: list = existing.get("analysis_history", [])
         history.append({"timestamp": now, "stats": stats})
 
+        existing_fetched = existing.get("last_fetched")
         summary = {
             "channel_id": channel_id,
             "channel_title": channel_title,
             "last_updated": now,
+            "last_fetched": last_fetched or existing_fetched or now,
             "stats": stats,
             "analysis_history": history,
         }
@@ -130,6 +134,7 @@ class ChannelAnalyzer:
         transcripts: dict,
         audience_result: dict,
         brand_result: dict,
+        last_fetched: str | None = None,
     ) -> list[Path]:
         print(f"\n>>> Writing reports → {self.out_dir}")
         written: list[Path] = []
@@ -152,7 +157,7 @@ class ChannelAnalyzer:
 
         _try(lambda: self._write_summary(
             channel_id=channel_id, channel_title=channel_title, videos=videos,
-            audience=audience_result, brand=brand_result,
+            audience=audience_result, brand=brand_result, last_fetched=last_fetched,
         ), "summary.json")
 
         if all_comments:

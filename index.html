@@ -10,47 +10,30 @@
     <h1>Youtube Analysis</h1>
 
     <div id="settings">
-        <h2>新增分析</h2>
-        <form id="analysisForm">
-            <label for="channel">頻道 handle 或 ID:</label>
-            <input type="text" id="channel" name="channel" placeholder="@SomeChannel" required>
+        <label for="localModel">Ollama 模型:</label>
+        <select id="localModel">
+            <option value="">載入中...</option>
+        </select>
 
-            <label for="localModel">Ollama 模型:</label>
-            <select id="localModel" name="localModel">
-                <option value="">載入中...</option>
-            </select>
+        <h2>已分析的頻道</h2>
+        <div id="channelList">載入中...</div>
+
+        <h2>新增頻道</h2>
+        <form id="newChannelForm">
+            <label for="channel">頻道 handle 或 ID:</label>
+            <input type="text" id="channel" placeholder="@SomeChannel" required>
 
             <label for="maxVideos">最多分析影片數:</label>
-            <input type="number" id="maxVideos" name="maxVideos" value="20" min="5" max="100">
+            <input type="number" id="maxVideos" value="20" min="5" max="100">
 
             <fieldset>
                 <legend>分析選項</legend>
-                <label>
-                    <input type="checkbox" id="skipAudience" name="skipAudience">
-                    跳過觀眾分析
-                </label>
-                <label>
-                    <input type="checkbox" id="skipBrand" name="skipBrand">
-                    跳過品牌分析
-                </label>
+                <label><input type="checkbox" id="skipAudience"> 跳過觀眾分析</label>
+                <label><input type="checkbox" id="skipBrand"> 跳過品牌分析</label>
             </fieldset>
 
-            <button type="submit">開始分析</button>
+            <button type="submit">開始抓取並分析</button>
         </form>
-
-        <hr>
-
-        <h2>載入已分析的頻道</h2>
-        <div id="cachedChannels">
-            <button type="button" onclick="loadCachedChannelsList()">顯示已快取的頻道</button>
-            <div id="channelList" style="display:none; margin-top: 10px;">
-                <label for="cachedChannelSelect">選擇頻道:</label>
-                <select id="cachedChannelSelect">
-                    <option value="">-- 請選擇 --</option>
-                </select>
-                <button type="button" onclick="loadFromCache()">載入</button>
-            </div>
-        </div>
 
         <div id="status" style="display:none;">
             <h3>執行進度</h3>
@@ -81,179 +64,185 @@
             <div id="brandContent"></div>
         </div>
 
-        <button onclick="backToSettings()">返回分析設定</button>
+        <button onclick="backToSettings()">返回</button>
     </div>
 
     <script>
-        const form = document.getElementById('analysisForm');
         const status = document.getElementById('status');
         const statusLog = document.getElementById('statusLog');
         const results = document.getElementById('results');
         const settings = document.getElementById('settings');
         const localModelSelect = document.getElementById('localModel');
 
-        // 頁面載入時自動抓取 Ollama 模型列表
+        function fmtDate(iso) {
+            if (!iso || iso === 'Unknown') return '—';
+            return iso.slice(0, 10);
+        }
+
         async function loadOllamaModels() {
             try {
-                const response = await fetch('/api/ollama/models');
-                const data = await response.json();
-
+                const res = await fetch('/api/ollama/models');
+                const data = await res.json();
                 localModelSelect.innerHTML = '';
-
                 if (data.models && data.models.length > 0) {
-                    data.models.forEach(model => {
-                        const option = document.createElement('option');
-                        option.value = model;
-                        option.textContent = model;
-                        localModelSelect.appendChild(option);
+                    data.models.forEach(m => {
+                        const opt = document.createElement('option');
+                        opt.value = m; opt.textContent = m;
+                        localModelSelect.appendChild(opt);
                     });
                 } else {
-                    localModelSelect.innerHTML = '<option value="">無可用模型 (請先安裝 Ollama 模型)</option>';
+                    localModelSelect.innerHTML = '<option value="">無可用模型</option>';
                 }
-            } catch (error) {
+            } catch {
                 localModelSelect.innerHTML = '<option value="">載入失敗</option>';
-                console.error('載入模型列表失敗:', error);
             }
         }
 
-        loadOllamaModels();
-
-        async function loadCachedChannelsList() {
+        async function loadChannelList() {
+            const el = document.getElementById('channelList');
             try {
-                const response = await fetch('/api/list_cached_channels');
-                const data = await response.json();
-
-                const select = document.getElementById('cachedChannelSelect');
-                const channelList = document.getElementById('channelList');
-
-                select.innerHTML = '<option value="">-- 請選擇 --</option>';
-
-                if (data.channels && data.channels.length > 0) {
-                    data.channels.forEach(channel => {
-                        const option = document.createElement('option');
-                        option.value = channel.channel_id;
-                        option.textContent = `${channel.channel_title} (${channel.total_videos} 支影片)`;
-                        select.appendChild(option);
-                    });
-                    channelList.style.display = 'block';
-                } else {
-                    alert('沒有找到已快取的頻道資料');
+                const res = await fetch('/api/list_cached_channels');
+                const data = await res.json();
+                if (!data.channels || data.channels.length === 0) {
+                    el.innerHTML = '<p>尚無已分析的頻道</p>';
+                    return;
                 }
-            } catch (error) {
-                alert('載入快取列表失敗: ' + error.message);
+                el.innerHTML = data.channels.map(ch => `
+                    <div style="border:1px solid #ccc; padding:8px; margin:8px 0;">
+                        <strong>${ch.channel_title}</strong>
+                        （${ch.total_videos} 支影片）<br>
+                        上次抓取: ${fmtDate(ch.last_fetched)} ／ 上次分析: ${fmtDate(ch.last_updated)}
+                        <br>
+                        <button onclick="loadResults('${ch.channel_id}')">查看結果</button>
+                        <button onclick="channelFetchAndAnalyze('${ch.channel_id}')">補抓並分析</button>
+                        <button onclick="channelAnalyzeCached('${ch.channel_id}')">直接分析</button>
+                        <button onclick="channelFetchOnly('${ch.channel_id}')">僅補抓</button>
+                        <button onclick="channelDelete('${ch.channel_id}', this)">刪除</button>
+                    </div>
+                `).join('');
+            } catch {
+                el.innerHTML = '<p>載入失敗</p>';
             }
         }
 
-        async function loadFromCache() {
-            const channelId = document.getElementById('cachedChannelSelect').value;
-
-            if (!channelId) {
-                alert('請先選擇一個頻道');
-                return;
-            }
-
+        async function loadResults(channelId) {
             try {
-                status.style.display = 'block';
-                statusLog.textContent = '正在載入快取資料...';
-
-                const response = await fetch('/api/load_cache', {
+                const res = await fetch('/api/load_cache', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ channel_id: channelId })
                 });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || '載入失敗');
-                }
-
-                const data = await response.json();
-
+                const data = await res.json();
                 displayResults(data);
-                status.style.display = 'none';
                 settings.style.display = 'none';
                 results.style.display = 'block';
-
-            } catch (error) {
-                statusLog.textContent = '錯誤: ' + error.message;
+            } catch (e) {
+                alert('載入失敗: ' + e.message);
             }
         }
 
-        function backToSettings() {
-            settings.style.display = 'block';
-            results.style.display = 'none';
+        async function channelDelete(channelId, btn) {
+            if (!confirm('確定刪除此頻道的所有資料？')) return;
+            try {
+                const res = await fetch(`/api/channels/${channelId}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    btn.closest('div').remove();
+                } else {
+                    alert('刪除失敗: ' + data.error);
+                }
+            } catch (e) {
+                alert('刪除失敗: ' + e.message);
+            }
         }
 
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
+        function channelFetchAndAnalyze(channelId) {
+            runStreamingTask(
+                `/api/channels/${channelId}/fetch_and_analyze`,
+                { localModel: localModelSelect.value },
+                true
+            );
+        }
 
-            const formData = {
-                channel: document.getElementById('channel').value,
-                localModel: localModelSelect.value,
-                maxVideos: parseInt(document.getElementById('maxVideos').value),
-                skipAudience: document.getElementById('skipAudience').checked,
-                skipBrand: document.getElementById('skipBrand').checked
-            };
+        function channelAnalyzeCached(channelId) {
+            runStreamingTask(
+                `/api/channels/${channelId}/analyze`,
+                { localModel: localModelSelect.value },
+                true
+            );
+        }
 
+        function channelFetchOnly(channelId) {
+            runStreamingTask(
+                `/api/channels/${channelId}/fetch`,
+                {},
+                false
+            );
+        }
+
+        function runStreamingTask(endpoint, body, showResults) {
             status.style.display = 'block';
             results.style.display = 'none';
             statusLog.textContent = '';
 
-            try {
-                const response = await fetch('/api/analyze', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(formData)
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || '分析啟動失敗');
-                }
-
-                const { task_id } = await response.json();
-
-                const eventSource = new EventSource(`/api/stream/${task_id}`);
-
-                eventSource.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    const msg = data.message;
-
+            fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            })
+            .then(res => res.json())
+            .then(({ task_id }) => {
+                const es = new EventSource(`/api/stream/${task_id}`);
+                es.onmessage = (event) => {
+                    const { message: msg } = JSON.parse(event.data);
                     if (msg.startsWith('DONE:')) {
-                        const result = JSON.parse(msg.substring(5));
-                        displayResults(result);
+                        es.close();
                         status.style.display = 'none';
-                        settings.style.display = 'none';
-                        results.style.display = 'block';
-                        eventSource.close();
+                        const result = JSON.parse(msg.substring(5));
+                        if (showResults) {
+                            displayResults(result);
+                            settings.style.display = 'none';
+                            results.style.display = 'block';
+                        } else {
+                            loadChannelList();
+                        }
                     } else if (msg.startsWith('ERROR:')) {
+                        es.close();
                         statusLog.textContent += '\n錯誤: ' + msg.substring(6);
-                        eventSource.close();
                     } else {
                         statusLog.textContent += msg + '\n';
                         statusLog.scrollTop = statusLog.scrollHeight;
                     }
                 };
+                es.onerror = () => { statusLog.textContent += '\n連線中斷'; es.close(); };
+            })
+            .catch(e => { statusLog.textContent = '錯誤: ' + e.message; });
+        }
 
-                eventSource.onerror = () => {
-                    statusLog.textContent += '\n連線中斷';
-                    eventSource.close();
-                };
-
-            } catch (error) {
-                statusLog.textContent = '錯誤: ' + error.message;
-            }
+        document.getElementById('newChannelForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const body = {
+                channel: document.getElementById('channel').value,
+                localModel: localModelSelect.value,
+                maxVideos: parseInt(document.getElementById('maxVideos').value),
+                skipAudience: document.getElementById('skipAudience').checked,
+                skipBrand: document.getElementById('skipBrand').checked,
+            };
+            runStreamingTask('/api/analyze', body, true);
         });
+
+        function backToSettings() {
+            settings.style.display = 'block';
+            results.style.display = 'none';
+            loadChannelList();
+        }
 
         async function loadMarkdownReport(channelId, filename, elementId) {
             const el = document.getElementById(elementId);
             el.textContent = '載入中...';
             try {
                 const res = await fetch(`/api/reports/${channelId}/${filename}`);
-                if (!res.ok) {
-                    el.textContent = '暫無報告';
-                    return;
-                }
+                if (!res.ok) { el.textContent = '暫無報告'; return; }
                 el.innerHTML = marked.parse(await res.text());
             } catch {
                 el.textContent = '載入失敗';
@@ -262,10 +251,9 @@
 
         function displayResults(data) {
             const channelId = data.summary.channel_id;
-            const channelTitle = data.summary.channel_title || 'Unknown Channel';
-            const lastUpdated = data.summary.last_updated || 'Unknown';
-            document.getElementById('channelTitle').textContent = channelTitle;
-            document.getElementById('lastUpdated').textContent = `最後更新: ${lastUpdated}`;
+            document.getElementById('channelTitle').textContent = data.summary.channel_title || 'Unknown';
+            document.getElementById('lastUpdated').textContent =
+                `上次抓取: ${fmtDate(data.summary.last_fetched)} ／ 上次分析: ${fmtDate(data.summary.last_updated)}`;
 
             const stats = data.summary.stats || {};
             document.getElementById('statsContent').innerHTML = `
@@ -276,6 +264,9 @@
             loadMarkdownReport(channelId, 'audience_report.md', 'audienceContent');
             loadMarkdownReport(channelId, 'brand_report.md', 'brandContent');
         }
+
+        loadOllamaModels();
+        loadChannelList();
     </script>
 </body>
 </html>
