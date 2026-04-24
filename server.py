@@ -30,8 +30,6 @@ def analyze():
         max_videos = data.get('maxVideos', 20)
         skip_audience = data.get('skipAudience', False)
         skip_brand = data.get('skipBrand', False)
-        skip_extraction = data.get('skipExtraction', False)
-
         if not channel:
             return jsonify({'error': '缺少頻道參數'}), 400
 
@@ -66,7 +64,6 @@ def analyze():
                     all_comments=comments,
                     skip_audience=skip_audience,
                     skip_brand=skip_brand,
-                    skip_extraction=skip_extraction,
                     max_videos=max_videos,
                 )
 
@@ -74,18 +71,9 @@ def analyze():
                 summary_path = out_dir / 'summary.json'
                 summary = json.loads(summary_path.read_text(encoding='utf-8'))
 
-                knowledge = []
-                knowledge_csv = out_dir / 'knowledge_index.csv'
-                if knowledge_csv.exists():
-                    import csv
-                    with open(knowledge_csv, 'r', encoding='utf-8') as f:
-                        reader = csv.DictReader(f)
-                        knowledge = list(reader)
-
                 msg_queue.put('DONE:' + json.dumps({
                     'success': True,
                     'summary': summary,
-                    'knowledge': knowledge
                 }))
 
             except Exception as e:
@@ -170,15 +158,7 @@ def load_cache():
 
         summary = json.loads(summary_path.read_text(encoding='utf-8'))
 
-        knowledge = []
-        knowledge_csv = out_dir / 'knowledge_index.csv'
-        if knowledge_csv.exists():
-            import csv
-            with open(knowledge_csv, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                knowledge = list(reader)
-
-        return jsonify({'success': True, 'summary': summary, 'knowledge': knowledge})
+        return jsonify({'success': True, 'summary': summary})
 
     except Exception as e:
         import traceback

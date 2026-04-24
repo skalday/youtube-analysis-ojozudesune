@@ -42,7 +42,6 @@ class MarkdownReporter:
             "",
             f"- **Estimated age range**: {demo.get('age_range', 'N/A')}",
             f"- **Occupation types**: {', '.join(demo.get('occupation_types', [])) or 'N/A'}",
-            f"- **Location hints**: {', '.join(demo.get('location_hints', [])) or 'N/A'}",
             "",
             "## Interests & Topics",
             "",
@@ -138,68 +137,3 @@ class MarkdownReporter:
         _write(path, "\n".join(lines))
         return path
 
-    def write_knowledge_index(self, out_dir: str | Path, knowledge_agg: dict, channel_title: str) -> Path:
-        out_dir = Path(out_dir)
-        path = out_dir / "knowledge_index.md"
-
-        stats = knowledge_agg.get("stats", {})
-        index_summary = knowledge_agg.get("index_summary", {})
-        by_category = knowledge_agg.get("by_category", {})
-        extraction_date = knowledge_agg.get("extraction_date", "N/A")
-
-        lines = [
-            f"# Golf Knowledge Index — {channel_title}",
-            "",
-            f"> Extracted: {extraction_date[:10]}  |  "
-            f"Videos processed: {stats.get('videos_processed', 0)}  |  "
-            f"Total knowledge items: {stats.get('total_knowledge_items', 0)}",
-            "",
-            "---",
-            "",
-        ]
-
-        if index_summary.get("learning_path_suggestion"):
-            lines += ["## Suggested Learning Path", "", index_summary["learning_path_suggestion"], ""]
-
-        top_topics = index_summary.get("top_topics", [])
-        if top_topics:
-            lines += ["## Top Topics", "", _bullet_list(top_topics)]
-
-        lines += ["---", ""]
-
-        category_order = [
-            "swing_technique", "course_strategy", "practice_method",
-            "mental", "club_selection", "course_intro", "rules_etiquette", "other",
-        ]
-        for cat in by_category:
-            if cat not in category_order:
-                category_order.append(cat)
-
-        for cat in category_order:
-            items = by_category.get(cat)
-            if not items:
-                continue
-
-            lines += [
-                f"## {cat} ({len(items)} items)",
-                "",
-                "| Topic | Summary | Difficulty | Source |",
-                "|-------|---------|------------|--------|",
-            ]
-
-            for item in items:
-                topic = item.get("topic_en", item.get("topic", "")).replace("|", "&#124;")
-                summary = item.get("summary", "")
-                if len(summary) > 60:
-                    summary = summary[:57] + "..."
-                summary = summary.replace("|", "&#124;")
-                difficulty = item.get("difficulty_level", "")
-                video_title = item.get("video_title", "")
-                video_url = item.get("video_url", "")
-                source = f"[{video_title[:20]}]({video_url})" if video_url else video_title[:20]
-                lines.append(f"| {topic} | {summary} | {difficulty} | {source} |")
-
-            lines.append("")
-
-        _write(path, "\n".join(lines))
-        return path

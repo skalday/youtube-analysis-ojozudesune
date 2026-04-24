@@ -32,10 +32,6 @@
                     <input type="checkbox" id="skipBrand" name="skipBrand">
                     跳過品牌分析
                 </label>
-                <label>
-                    <input type="checkbox" id="skipExtraction" name="skipExtraction">
-                    跳過地點/知識提取
-                </label>
             </fieldset>
 
             <button type="submit">開始分析</button>
@@ -82,22 +78,6 @@
         <div id="brand">
             <h3>品牌定位</h3>
             <div id="brandContent"></div>
-        </div>
-
-        <div id="knowledge">
-            <h3>知識索引</h3>
-            <input type="text" id="knowledgeSearch" placeholder="搜尋知識點...">
-            <table id="knowledgeTable">
-                <thead>
-                    <tr>
-                        <th>知識點</th>
-                        <th>影片</th>
-                        <th>時間</th>
-                        <th>連結</th>
-                    </tr>
-                </thead>
-                <tbody id="knowledgeBody"></tbody>
-            </table>
         </div>
 
         <button onclick="backToSettings()">返回分析設定</button>
@@ -211,8 +191,7 @@
                 localModel: localModelSelect.value,
                 maxVideos: parseInt(document.getElementById('maxVideos').value),
                 skipAudience: document.getElementById('skipAudience').checked,
-                skipBrand: document.getElementById('skipBrand').checked,
-                skipExtraction: document.getElementById('skipExtraction').checked
+                skipBrand: document.getElementById('skipBrand').checked
             };
 
             status.style.display = 'block';
@@ -275,8 +254,6 @@
             document.getElementById('statsContent').innerHTML = `
                 <p>總影片數: ${stats.total_videos || 0}</p>
                 <p>分析留言數: ${stats.total_comments_analyzed || 0}</p>
-                <p>知識點數: ${stats.total_knowledge_items || 0}</p>
-                <p>地點數: ${stats.total_locations || 0}</p>
             `;
 
             const audience = data.summary.audience_analysis || {};
@@ -289,37 +266,6 @@
                 <p>${brand.summary || '暫無資料'}</p>
             `;
 
-            const knowledge = data.knowledge || [];
-            const tbody = document.getElementById('knowledgeBody');
-
-            if (knowledge.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4">暫無知識索引資料</td></tr>';
-            } else {
-                tbody.innerHTML = knowledge.map(item => `
-                    <tr>
-                        <td>${item.content || item.knowledge_point || ''}</td>
-                        <td>${item.video_title || ''}</td>
-                        <td>${item.timestamp || 'N/A'}</td>
-                        <td><a href="${item.video_url || item.url || '#'}" target="_blank">觀看</a></td>
-                    </tr>
-                `).join('');
-            }
-
-            const searchInput = document.getElementById('knowledgeSearch');
-            searchInput.value = '';
-
-            const newSearchInput = searchInput.cloneNode(true);
-            searchInput.parentNode.replaceChild(newSearchInput, searchInput);
-
-            newSearchInput.addEventListener('input', (e) => {
-                const searchTerm = e.target.value.toLowerCase();
-                const rows = tbody.getElementsByTagName('tr');
-
-                for (let row of rows) {
-                    const text = row.textContent.toLowerCase();
-                    row.style.display = text.includes(searchTerm) ? '' : 'none';
-                }
-            });
         }
     </script>
 </body>

@@ -19,8 +19,6 @@ from pathlib import Path
 from modules.llm_providers.base import BaseLLMClient
 from modules.analysis.audience import AudienceAnalyzer
 from modules.analysis.brand import BrandAnalyzer
-from modules.extractors.locations import LocationExtractor
-from modules.extractors.knowledge import KnowledgeExtractor
 from modules.reporters.markdown import MarkdownReporter
 from modules.reporters.csv_reporter import CSVReporter
 from modules.storage.file_store import FileStore
@@ -46,10 +44,9 @@ class ChannelAnalyzer:
         all_comments: dict,
         skip_audience: bool = False,
         skip_brand: bool = False,
-        skip_extraction: bool = False,
         max_videos: int | None = None,
     ) -> list[Path]:
-        """Run LLM analysis, extraction, and write all reports. Returns list of written files."""
+        """Run LLM analysis and write all reports. Returns list of written files."""
         if max_videos:
             videos = videos[:max_videos]
             allowed = {v["video_id"] for v in videos}
@@ -82,36 +79,9 @@ class ChannelAnalyzer:
         else:
             print("\n>>> Skipping brand analysis")
 
-        location_agg: dict = {}
-        knowledge_agg: dict = {}
-        if not skip_extraction and transcripts:
-            print("\n>>> Extracting locations, food, equipment...")
-            try:
-                le = LocationExtractor(client=self.llm)
-                location_agg = le.aggregate(le.extract_batch(videos=videos, transcripts=transcripts))
-                self._store().save_json(str(self.out_dir / "locations_database.json"), location_agg)
-                s = location_agg.get("stats", {})
-                print(f"    Locations: {s.get('total_locations', 0)}  "
-                      f"Food: {s.get('total_food_items', 0)}  "
-                      f"Equipment: {s.get('total_equipment_items', 0)}")
-            except Exception as exc:
-                print(f"[WARNING] Location extraction failed: {exc}", file=sys.stderr)
-
-            print("\n>>> Extracting knowledge index...")
-            try:
-                ke = KnowledgeExtractor(client=self.llm)
-                knowledge_agg = ke.aggregate(ke.extract_batch(videos=videos, transcripts=transcripts))
-                s = knowledge_agg.get("stats", {})
-                print(f"    {s.get('total_knowledge_items', 0)} items "
-                      f"across {s.get('videos_with_knowledge', 0)} videos")
-            except Exception as exc:
-                print(f"[WARNING] Knowledge extraction failed: {exc}", file=sys.stderr)
-        else:
-            print("\n>>> Skipping extraction")
-
         return self._write_reports(
             channel_id, channel_title, videos, all_comments, transcripts,
-            audience_result, brand_result, location_agg, knowledge_agg,
+            audience_result, brand_result,
         )
 
     def _store(self) -> FileStore:
@@ -124,25 +94,15 @@ class ChannelAnalyzer:
         videos: list,
         audience: dict,
         brand: dict,
-        location_agg: dict,
-        knowledge_agg: dict,
     ) -> Path:
         """Write summary.json used by the web UI to display results."""
         path = self.out_dir / "summary.json"
         now = datetime.now(timezone.utc).isoformat()
 
-        loc_stats = (location_agg or {}).get("stats", {})
-        know_stats = (knowledge_agg or {}).get("stats", {})
-
         stats = {
             "total_videos": len(videos),
             "videos_with_transcript": sum(1 for v in videos if v.get("has_transcript", False)),
             "total_comments_analyzed": audience.get("comment_count", 0),
-            "total_locations": loc_stats.get("total_locations", 0),
-            "unique_golf_courses": loc_stats.get("unique_golf_courses", 0),
-            "total_food_items": loc_stats.get("total_food_items", 0),
-            "total_equipment_items": loc_stats.get("total_equipment_items", 0),
-            "total_knowledge_items": know_stats.get("total_knowledge_items", 0),
         }
 
         existing = self._store().load_json(str(path)) or {}
@@ -159,8 +119,6 @@ class ChannelAnalyzer:
             "stats": stats,
             "audience_analysis": _strip_internal(audience),
             "brand_analysis": _strip_internal(brand),
-            "location_stats": loc_stats,
-            "knowledge_stats": know_stats,
             "analysis_history": history,
         }
 
@@ -177,8 +135,6 @@ class ChannelAnalyzer:
         transcripts: dict,
         audience_result: dict,
         brand_result: dict,
-        location_agg: dict,
-        knowledge_agg: dict,
     ) -> list[Path]:
         print(f"\n>>> Writing reports → {self.out_dir}")
         written: list[Path] = []
@@ -198,23 +154,16 @@ class ChannelAnalyzer:
             _try(lambda: self.md.write_audience_report(self.out_dir, audience_result, channel_title), "audience_report.md")
         if brand_result:
             _try(lambda: self.md.write_brand_report(self.out_dir, brand_result, channel_title), "brand_report.md")
-        if knowledge_agg:
-            _try(lambda: self.md.write_knowledge_index(self.out_dir, knowledge_agg, channel_title), "knowledge_index.md")
 
         _try(lambda: self._write_summary(
             channel_id=channel_id, channel_title=channel_title, videos=videos,
             audience=audience_result, brand=brand_result,
-            location_agg=location_agg or None, knowledge_agg=knowledge_agg or None,
         ), "summary.json")
 
         if all_comments:
             _try(lambda: self.cr.write_comments(self.out_dir, all_comments, videos), "comments.csv")
         if transcripts:
             _try(lambda: self.cr.write_transcripts(self.out_dir, transcripts, videos), "transcripts.csv")
-        if location_agg:
-            _try(lambda: self.cr.write_all_location_csvs(self.out_dir, location_agg), "locations CSV")
-        if knowledge_agg:
-            _try(lambda: self.cr.write_knowledge(self.out_dir, knowledge_agg), "knowledge_index.csv")
 
         print(f"\n{'='*60}")
         print(f"Done! {len(written)} files written:")
